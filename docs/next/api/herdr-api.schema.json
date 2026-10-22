@@ -10710,6 +10710,13 @@
         },
         "WorktreeSourceInfo": {
           "properties": {
+            "checkout_directory": {
+              "description": "Inferred parent directory for new checkouts; absent uses the configured default.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "repo_key": {
               "type": "string"
             },

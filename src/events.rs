@@ -71,6 +71,7 @@ pub(crate) struct WorktreeReadData {
     pub repo_key: String,
     pub repo_name: String,
     pub entries: Vec<crate::worktree::ExistingWorktree>,
+    pub checkout_directory: Option<std::path::PathBuf>,
 }
 
 /// An event from a background task to the main loop.

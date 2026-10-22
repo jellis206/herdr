@@ -24,6 +24,10 @@ impl App {
                 self.start_api_worktree_read(request, respond_to, client_local);
                 true
             }
+            crate::api::schema::Method::WorktreeCreate(ref params) if params.path.is_none() => {
+                self.start_api_worktree_read(request, respond_to, client_local);
+                true
+            }
             crate::api::schema::Method::WorktreeCreate(params) => {
                 self.start_api_worktree_create(request.id, params, respond_to);
                 true
@@ -97,7 +101,7 @@ impl App {
         }
     }
 
-    fn start_api_worktree_create(
+    pub(super) fn start_api_worktree_create(
         &mut self,
         id: String,
         params: WorktreeCreateParams,

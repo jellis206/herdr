@@ -69,6 +69,7 @@ pub(super) fn snapshot() -> ClientShellSnapshot {
 fn worktree_list_result(open_workspace_id: Option<&str>) -> crate::api::schema::ResponseResult {
     crate::api::schema::ResponseResult::WorktreeList {
         source: crate::api::schema::WorktreeSourceInfo {
+            checkout_directory: None,
             repo_key: "repo-key".into(),
             repo_name: "repo".into(),
             repo_root: "/repo".into(),

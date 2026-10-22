@@ -1278,6 +1278,43 @@ fn worktree_create_previews_the_endpoint_owned_checkout_path() {
 }
 
 #[test]
+fn worktree_create_previews_inferred_directory_from_remote_endpoint() {
+    for (directory, expected) in [
+        ("/dev/wt-repo", "/dev/wt-repo/feature-next"),
+        (r"C:\dev\wt-repo", r"C:\dev\wt-repo\feature-next"),
+    ] {
+        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+        state.set_snapshot(Box::new(snapshot()));
+        state.set_pane_surface(surface());
+        let mut prepare = ClientShellInput::default();
+        state.record_binding(
+            crate::input::KeybindMatch::Action(crate::input::KeybindAction::NewWorktree),
+            &mut prepare,
+        );
+        let [ClientShellAction::Endpoint { request, .. }] = &prepare.actions[..] else {
+            panic!("expected worktree preparation");
+        };
+        let mut result = worktree_list_result(None);
+        let crate::api::schema::ResponseResult::WorktreeList { source, .. } = &mut result else {
+            unreachable!();
+        };
+        source.checkout_directory = Some(directory.into());
+        state.handle_endpoint_result("boot-1", &request.id, Ok(result));
+        state.handle_input_bytes(b"feature/next");
+        let Some(ClientShellOverlay::WorktreeCreate(create)) = &state.overlay else {
+            panic!("expected create overlay");
+        };
+        assert_eq!(create.checkout_path, expected);
+        let submit = state.handle_input_bytes(b"\r");
+        assert!(
+            matches!(&submit.actions[..], [ClientShellAction::Endpoint { request, .. }]
+            if matches!(&request.method, crate::api::schema::Method::WorktreeCreate(params)
+                if params.path.is_none() && params.branch.as_deref() == Some("feature/next")))
+        );
+    }
+}
+
+#[test]
 fn unavailable_worktree_create_does_not_wedge_the_overlay() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));

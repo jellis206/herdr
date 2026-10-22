@@ -168,6 +168,47 @@ fn repository_git_args(repo_root: &Path, trust_repository: bool) -> Vec<String> 
     args
 }
 
+pub(crate) fn inferred_worktree_directory(entries: &[ExistingWorktree]) -> Option<PathBuf> {
+    preferred_worktree_directory(
+        entries
+            .iter()
+            // Git lists the primary checkout first, even when it also uses a .git file.
+            .skip(1)
+            .filter(|entry| !entry.is_bare && !entry.is_prunable && entry.path.is_dir())
+            .filter_map(|entry| {
+                // Only linked checkouts have a .git file; the primary checkout must not vote.
+                let content = std::fs::read_to_string(entry.path.join(".git")).ok()?;
+                let gitdir = content.trim().strip_prefix("gitdir:")?.trim();
+                let gitdir = entry.path.join(gitdir);
+                let metadata = std::fs::metadata(gitdir).ok()?;
+                // shortcut: birth time/mtime approximates creation until Git records it explicitly.
+                let created = metadata.created().or_else(|_| metadata.modified()).ok()?;
+                Some((canonical_or_original(&entry.path), created))
+            })
+            .collect(),
+    )
+}
+
+fn preferred_worktree_directory(
+    candidates: Vec<(PathBuf, std::time::SystemTime)>,
+) -> Option<PathBuf> {
+    let mut patterns = std::collections::BTreeMap::new();
+    for (path, created) in candidates {
+        let Some(parent) = path.parent() else {
+            continue;
+        };
+        let entry = patterns
+            .entry(parent.to_path_buf())
+            .or_insert((0usize, created));
+        entry.0 += 1;
+        entry.1 = entry.1.max(created);
+    }
+    patterns
+        .into_iter()
+        .max_by_key(|(_, rank)| *rank)
+        .map(|(path, _)| path)
+}
+
 pub(crate) fn default_checkout_path(root: &Path, repo_name: &str, branch: &str) -> PathBuf {
     root.join(repo_name).join(branch_to_path_slug(branch))
 }
@@ -604,6 +645,59 @@ mod tests {
         run_git(&repo, &["add", "README.md"]);
         run_git(&repo, &["commit", "--quiet", "-m", "initial"]);
         repo
+    }
+
+    #[test]
+    fn inferred_directory_uses_majority_then_newest_registration() {
+        let old = std::time::UNIX_EPOCH;
+        let new = old + std::time::Duration::from_secs(10);
+        let candidates = vec![
+            (PathBuf::from("/wt-repo/a"), old),
+            (PathBuf::from("/wt-repo/b"), old),
+            (PathBuf::from("/other/c"), new),
+        ];
+        assert_eq!(
+            preferred_worktree_directory(candidates.clone()),
+            Some(PathBuf::from("/wt-repo"))
+        );
+        let mut tied = candidates;
+        tied.push((PathBuf::from("/other/d"), old));
+        assert_eq!(
+            preferred_worktree_directory(tied),
+            Some(PathBuf::from("/other"))
+        );
+        assert_eq!(preferred_worktree_directory(Vec::new()), None);
+    }
+
+    #[test]
+    fn infers_only_live_linked_worktrees_even_when_called_from_a_linked_checkout() {
+        let repo = create_committed_repo("infer-directory");
+        // A primary checkout can also use a .git file (e.g. a submodule).
+        std::fs::rename(repo.join(".git"), repo.join("metadata")).unwrap();
+        std::fs::write(repo.join(".git"), "gitdir: metadata\n").unwrap();
+        let root = unique_temp_path("wt-pattern");
+        let linked = root.join("first");
+        std::fs::create_dir_all(&root).unwrap();
+        run_git(
+            &repo,
+            &["worktree", "add", "-b", "first", linked.to_str().unwrap()],
+        );
+        let stale = root.join("stale");
+        run_git(
+            &repo,
+            &["worktree", "add", "-b", "stale", stale.to_str().unwrap()],
+        );
+        std::fs::remove_dir_all(&stale).unwrap();
+        let entries = list_existing_worktrees(&linked, false).unwrap();
+        assert_eq!(
+            inferred_worktree_directory(&entries),
+            Some(canonical_or_original(&root))
+        );
+        run_git(&repo, &["worktree", "remove", linked.to_str().unwrap()]);
+        let entries = list_existing_worktrees(&repo, false).unwrap();
+        assert_eq!(inferred_worktree_directory(&entries), None);
+        std::fs::remove_dir_all(repo).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

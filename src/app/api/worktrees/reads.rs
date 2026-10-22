@@ -147,6 +147,12 @@ impl App {
                 true,
                 params.trust_repository,
             ),
+            Method::WorktreeCreate(params) => (
+                &params.workspace_id,
+                &params.cwd,
+                false,
+                params.trust_repository,
+            ),
             Method::WorktreeOpen(params) => {
                 if params.path.is_some() == params.branch.is_some() {
                     let _ = respond_to.send(encode_error(
@@ -163,7 +169,7 @@ impl App {
                     params.trust_repository,
                 )
             }
-            _ => unreachable!("only worktree list/open use background discovery"),
+            _ => unreachable!("only worktree list/open/create use background discovery"),
         };
         let input = match self.capture_worktree_read_source(workspace_id, cwd) {
             Ok(input) => input,
@@ -197,6 +203,8 @@ impl App {
                             trust_repository,
                         )
                         .map_err(|err| ApiFailure::new("worktree_list_failed", err))?;
+                        let checkout_directory =
+                            crate::worktree::inferred_worktree_directory(&entries);
                         if let Method::WorktreeOpen(params) = &request.method {
                             entries = vec![find_worktree_entry(
                                 entries,
@@ -210,6 +218,7 @@ impl App {
                             repo_key: source.repo_key,
                             repo_name: source.repo_name,
                             entries,
+                            checkout_directory,
                         })
                     })
                     .map_err(|err| (err.code.to_string(), err.message));
@@ -277,9 +286,12 @@ impl App {
                     .or_else(|| self.find_parent_workspace_by_key(&source.repo_key))
                     .or_else(|| self.open_workspace_idx_for_checkout(&source.source_checkout_path));
                 match result.request.method {
-                    Method::WorktreeList(_) => {
-                        self.finish_worktree_list(result.request.id, source, data.entries)
-                    }
+                    Method::WorktreeList(_) => self.finish_worktree_list(
+                        result.request.id,
+                        source,
+                        data.entries,
+                        data.checkout_directory,
+                    ),
                     Method::WorktreeOpen(params) => self.finish_worktree_open(
                         result.request.id,
                         params,
@@ -289,7 +301,41 @@ impl App {
                             .next()
                             .expect("open discovery selects one worktree"),
                     ),
-                    _ => unreachable!("only worktree list/open use background discovery"),
+                    Method::WorktreeCreate(mut params) => {
+                        // Discovery may finish after focus changed; create in the captured repo.
+                        params.workspace_id = source
+                            .workspace_idx
+                            .map(|idx| self.public_workspace_id(idx));
+                        params.cwd = params
+                            .workspace_id
+                            .is_none()
+                            .then(|| source.source_checkout_path.display().to_string());
+                        if let Some(directory) = data.checkout_directory {
+                            // Keep the generated branch and inferred destination in sync.
+                            let branch = params.branch.get_or_insert_with(|| {
+                                let seed = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map(|duration| {
+                                        duration.as_micros().min(u128::from(u64::MAX)) as u64
+                                    })
+                                    .unwrap_or(0);
+                                crate::worktree::generated_branch_slug(seed)
+                            });
+                            params.path = Some(
+                                directory
+                                    .join(crate::worktree::branch_to_path_slug(branch))
+                                    .display()
+                                    .to_string(),
+                            );
+                        }
+                        self.start_api_worktree_create(
+                            result.request.id,
+                            params,
+                            result.respond_to,
+                        );
+                        return;
+                    }
+                    _ => unreachable!("only worktree list/open/create use background discovery"),
                 }
             }
         };

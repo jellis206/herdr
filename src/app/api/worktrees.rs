@@ -51,7 +51,10 @@ impl App {
         id: String,
         source: WorktreeSource,
         entries: Vec<crate::worktree::ExistingWorktree>,
+        checkout_directory: Option<PathBuf>,
     ) -> String {
+        let mut source_info = self.worktree_source_info(&source);
+        source_info.checkout_directory = checkout_directory.map(|path| path.display().to_string());
         let worktrees = entries
             .into_iter()
             .map(|entry| self.worktree_info_for_entry(&source, entry))
@@ -60,7 +63,7 @@ impl App {
         encode_success(
             id,
             ResponseResult::WorktreeList {
-                source: self.worktree_source_info(&source),
+                source: source_info,
                 worktrees,
             },
         )
@@ -392,6 +395,7 @@ impl App {
             repo_key: source.repo_key.clone(),
             repo_name: source.repo_name.clone(),
             repo_root: source.source_repo_root.display().to_string(),
+            checkout_directory: None,
             source_checkout_path: source.source_checkout_path.display().to_string(),
             source_workspace_id: source
                 .workspace_idx
@@ -729,15 +733,142 @@ mod tests {
     fn run_deferred_api_request(app: &mut App, request: Request) -> String {
         let (respond_to, response_rx) = response_channel();
         assert!(app.handle_deferred_worktree_api_request(request, respond_to, false));
-        if let Ok(response) = response_rx.recv_timeout(std::time::Duration::from_millis(50)) {
-            return response;
-        }
+        finish_deferred_api_request(app, &response_rx)
+    }
 
-        let event = wait_for_app_event(app);
-        app.handle_internal_event(event);
-        response_rx
-            .recv_timeout(std::time::Duration::from_secs(2))
-            .expect("deferred API request should respond after completion event")
+    fn finish_deferred_api_request(
+        app: &mut App,
+        response_rx: &std::sync::mpsc::Receiver<String>,
+    ) -> String {
+        loop {
+            if let Ok(response) = response_rx.recv_timeout(std::time::Duration::from_millis(20)) {
+                return response;
+            }
+            let event = wait_for_app_event(app);
+            app.handle_internal_event(event);
+        }
+    }
+
+    #[tokio::test]
+    async fn worktree_create_follows_existing_directory_and_keeps_explicit_path() {
+        let repo = create_committed_repo("api-inferred-worktree");
+        let root = unique_temp_path("wt-existing");
+        std::fs::create_dir_all(&root).unwrap();
+        let existing = root.join("existing");
+        run_git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "existing",
+                existing.to_str().unwrap(),
+            ],
+        );
+        let mut app = app_with_parent(&repo);
+        let response = run_deferred_api_request(
+            &mut app,
+            Request {
+                id: "list".into(),
+                method: crate::api::schema::Method::WorktreeList(
+                    crate::api::schema::WorktreeListParams::default(),
+                ),
+            },
+        );
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::WorktreeList { source, .. } = success.result else {
+            panic!("expected worktree_list");
+        };
+        assert_eq!(
+            source.checkout_directory,
+            Some(
+                crate::worktree::canonical_or_original(&root)
+                    .display()
+                    .to_string()
+            )
+        );
+        for (branch, path) in [
+            ("feature/inferred", None),
+            ("explicit", Some(root.join("elsewhere/explicit"))),
+        ] {
+            let response = run_deferred_api_request(
+                &mut app,
+                Request {
+                    id: branch.into(),
+                    method: crate::api::schema::Method::WorktreeCreate(WorktreeCreateParams {
+                        cwd: Some(repo.display().to_string()),
+                        branch: Some(branch.into()),
+                        path: path.as_ref().map(|path| path.display().to_string()),
+                        focus: false,
+                        ..WorktreeCreateParams::default()
+                    }),
+                },
+            );
+            let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+            let ResponseResult::WorktreeCreated { worktree, .. } = success.result else {
+                panic!("expected worktree_created");
+            };
+            let expected = path.unwrap_or_else(|| root.join("feature-inferred"));
+            assert_eq!(
+                crate::worktree::canonical_or_original(Path::new(&worktree.path)),
+                crate::worktree::canonical_or_original(&expected)
+            );
+            assert!(expected.join("README.md").exists());
+        }
+        for (_, runtime) in app.terminal_runtimes.drain() {
+            runtime.shutdown();
+        }
+        std::fs::remove_dir_all(root).unwrap();
+        std::fs::remove_dir_all(repo).unwrap();
+    }
+
+    #[tokio::test]
+    async fn worktree_create_discovery_does_not_block_or_follow_focus_changes() {
+        let repo = create_committed_repo("api-create-captured-repo");
+        let other = create_committed_repo("api-create-other-repo");
+        let root = unique_temp_path("api-create-captured-root");
+        let mut app = app_with_parent(&repo);
+        app.state.worktree_directory = root.clone();
+        let mut other_workspace = Workspace::test_new("other");
+        other_workspace.identity_cwd = other.clone();
+        app.state.workspaces.push(other_workspace);
+        app.state.ensure_test_terminals();
+        let (entered, release) = crate::worktree::test_list_gate::block(&repo);
+        let (respond_to, response_rx) = response_channel();
+        app.handle_deferred_worktree_api_request(
+            Request {
+                id: "captured".into(),
+                method: crate::api::schema::Method::WorktreeCreate(WorktreeCreateParams {
+                    branch: Some("captured".into()),
+                    ..WorktreeCreateParams::default()
+                }),
+            },
+            respond_to,
+            false,
+        );
+        entered
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        assert!(response_rx.try_recv().is_err());
+        app.state.active = Some(1);
+        app.state.selected = 1;
+        release.send(()).unwrap();
+        let response = finish_deferred_api_request(&mut app, &response_rx);
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::WorktreeCreated { worktree, .. } = success.result else {
+            panic!("expected worktree_created");
+        };
+        assert!(Path::new(&worktree.path).starts_with(root.join(repo.file_name().unwrap())));
+        assert!(!crate::worktree::list_existing_worktrees(&other, false)
+            .unwrap()
+            .iter()
+            .any(|entry| entry.branch.as_deref() == Some("captured")));
+        for (_, runtime) in app.terminal_runtimes.drain() {
+            runtime.shutdown();
+        }
+        std::fs::remove_dir_all(root).unwrap();
+        std::fs::remove_dir_all(repo).unwrap();
+        std::fs::remove_dir_all(other).unwrap();
     }
 
     #[tokio::test]
@@ -874,11 +1005,7 @@ mod tests {
         ));
         assert!(response_rx.try_recv().is_err());
 
-        let event = wait_for_app_event(&mut app);
-        app.handle_internal_event(event);
-        let response = response_rx
-            .recv_timeout(std::time::Duration::from_secs(2))
-            .expect("deferred worktree create should respond after completion event");
+        let response = finish_deferred_api_request(&mut app, &response_rx);
         let success: SuccessResponse = serde_json::from_str(&response).unwrap();
         let ResponseResult::WorktreeCreated {
             workspace,
@@ -947,11 +1074,7 @@ mod tests {
 
         let (response_tx, response_rx) = response_channel();
         assert!(app.handle_deferred_worktree_api_request(request(), response_tx, false));
-        let event = wait_for_app_event(&mut app);
-        app.handle_internal_event(event);
-        let response = response_rx
-            .recv_timeout(std::time::Duration::from_secs(2))
-            .expect("create should respond");
+        let response = finish_deferred_api_request(&mut app, &response_rx);
         let success: SuccessResponse = serde_json::from_str(&response).unwrap();
         let ResponseResult::WorktreeCreated { worktree, .. } = success.result else {
             panic!("expected worktree_created response");
@@ -1012,11 +1135,7 @@ mod tests {
 
         let (first_tx, first_rx) = response_channel();
         assert!(app.handle_deferred_worktree_api_request(request(), first_tx, false));
-        let event = wait_for_app_event(&mut app);
-        app.handle_internal_event(event);
-        let response = first_rx
-            .recv_timeout(std::time::Duration::from_secs(2))
-            .expect("failed create should respond");
+        let response = finish_deferred_api_request(&mut app, &first_rx);
         let error: ErrorResponse = serde_json::from_str(&response).unwrap();
         assert_eq!(error.error.code, "worktree_create_failed");
         assert!(app.pending_api_worktree_creates.is_empty());
@@ -1024,11 +1143,7 @@ mod tests {
         let (second_tx, second_rx) = response_channel();
         assert!(app.handle_deferred_worktree_api_request(request(), second_tx, false));
         assert!(second_rx.try_recv().is_err());
-        let event = wait_for_app_event(&mut app);
-        app.handle_internal_event(event);
-        let response = second_rx
-            .recv_timeout(std::time::Duration::from_secs(2))
-            .expect("retry should reach git instead of pending guard");
+        let response = finish_deferred_api_request(&mut app, &second_rx);
         let error: ErrorResponse = serde_json::from_str(&response).unwrap();
         assert_eq!(error.error.code, "worktree_create_failed");
         assert_ne!(error.error.code, "worktree_operation_in_progress");
@@ -1096,8 +1211,12 @@ mod tests {
                     .await
                     .expect("failed completion is delivered once the queue drains")
                     .expect("event channel open");
-            if matches!(event, AppEvent::WorktreeAddFinished(_)) {
-                break event;
+            match event {
+                AppEvent::WorktreeAddFinished(_) => break event,
+                AppEvent::WorktreeReadFinished(result) => {
+                    app.handle_api_worktree_read_finished(*result)
+                }
+                _ => {}
             }
         };
         app.handle_internal_event(finished);

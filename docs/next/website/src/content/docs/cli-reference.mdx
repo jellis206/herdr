@@ -181,7 +181,7 @@ herdr worktree open [--workspace ID | --cwd PATH] (--path PATH | --branch NAME) 
 herdr worktree remove --workspace ID [--force] [--trust-repository]
 ```
 
-Worktrees are normal Herdr workspaces with Git checkout provenance. `worktree create` creates a Git worktree checkout, opens it as a workspace, and groups it with the parent repo workspace. If `--branch` names an existing local branch, Herdr checks it out; otherwise it creates the branch from `--base` or `HEAD`. Without `--path`, Herdr creates the checkout under `<worktrees.directory>/<repo>/<branch-slug>`.
+Worktrees are normal Herdr workspaces with Git checkout provenance. `worktree create` creates a Git worktree checkout, opens it as a workspace, and groups it with the parent repo workspace. If `--branch` names an existing local branch, Herdr checks it out; otherwise it creates the branch from `--base` or `HEAD`. Without `--path`, Herdr follows the most common parent directory of the repo's existing live linked worktrees, using the newest Git worktree registration to break ties. Registration birth time is used when available, otherwise modification time. The main checkout and stale entries do not participate. When there is no existing pattern, Herdr creates the checkout under `<worktrees.directory>/<repo>/<branch-slug>`. An explicit `--path` always overrides inference.
 
 `workspace close` closes only Herdr state. Closing a primary workspace while linked-worktree workspaces are open requires `--group`; without it, the command leaves the group open and returns `workspace_group_close_required`. To delete the checkout, run `worktree remove`. It runs `git worktree remove`, never deletes the branch, and requires `--force` when Git refuses a dirty checkout.
 

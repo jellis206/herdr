@@ -93,6 +93,9 @@ cli_params! {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorktreeSourceInfo {
+    /// Inferred parent directory for new checkouts; absent uses the configured default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkout_directory: Option<String>,
     pub repo_key: String,
     pub repo_name: String,
     pub repo_root: String,

@@ -7,9 +7,13 @@ fn checkout_path_preview(root: &str, repo: &str, branch: &str) -> String {
     } else {
         '/'
     };
+    let directory = if repo.is_empty() {
+        root.trim_end_matches(separator).to_owned()
+    } else {
+        format!("{}{separator}{repo}", root.trim_end_matches(separator))
+    };
     format!(
-        "{}{separator}{repo}{separator}{}",
-        root.trim_end_matches(separator),
+        "{directory}{separator}{}",
         crate::worktree::branch_to_path_slug(branch)
     )
 }
@@ -235,8 +239,10 @@ impl ClientShellState {
         let Some(ClientShellOverlay::WorktreeCreate(create)) = self.overlay.as_mut() else {
             return;
         };
-        create.checkout_path =
-            checkout_path_preview(&worktree_directory, &create.repo_name, &create.branch);
+        create.checkout_path = match &create.checkout_directory {
+            Some(directory) => checkout_path_preview(directory, "", &create.branch),
+            None => checkout_path_preview(&worktree_directory, &create.repo_name, &create.branch),
+        };
         create.error = None;
     }
 
@@ -257,8 +263,10 @@ impl ClientShellState {
             return;
         }
         create.branch.trim_and_accept();
-        create.checkout_path =
-            checkout_path_preview(&worktree_directory, &create.repo_name, &branch);
+        create.checkout_path = match &create.checkout_directory {
+            Some(directory) => checkout_path_preview(directory, "", &branch),
+            None => checkout_path_preview(&worktree_directory, &create.repo_name, &branch),
+        };
         create.creating = true;
         create.error = None;
         let workspace_id = create.source_workspace_id.clone();
@@ -386,12 +394,15 @@ impl ClientShellState {
                 let Some(worktree_directory) = self.endpoint_worktree_directory() else {
                     return false;
                 };
-                let checkout_path =
-                    checkout_path_preview(&worktree_directory, &source.repo_name, &branch);
+                let checkout_path = match &source.checkout_directory {
+                    Some(directory) => checkout_path_preview(directory, "", &branch),
+                    None => checkout_path_preview(&worktree_directory, &source.repo_name, &branch),
+                };
                 self.overlay = Some(ClientShellOverlay::WorktreeCreate(
                     ClientWorktreeCreateOverlay {
                         source_workspace_id: workspace_id,
                         repo_name: source.repo_name,
+                        checkout_directory: source.checkout_directory,
                         branch: TextEditor::new(&branch, true),
                         checkout_path,
                         error: None,
