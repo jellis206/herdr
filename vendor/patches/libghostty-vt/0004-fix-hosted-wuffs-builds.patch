@@ -1,16 +1,6 @@
---- a/vendor/libghostty-vt/pkg/wuffs/build.zig
-+++ b/vendor/libghostty-vt/pkg/wuffs/build.zig
-@@ -59,6 +59,7 @@
-             .target = target,
-             .optimize = optimize,
-             .link_libc = windows,
-+            .libc_file = if (b.libc_file) |path| .{ .cwd_relative = path } else null,
-         });
- 
-         // Wuffs only needs stdlib.h and string.h from libc, and only for
 --- a/vendor/libghostty-vt/pkg/wuffs/src/main.zig
 +++ b/vendor/libghostty-vt/pkg/wuffs/src/main.zig
-@@ -19,12 +19,11 @@
+@@ -20,12 +20,11 @@
  // Wuffs' generated `wuffs_foo__bar__alloc()` convenience functions are the
  // only code that references libc's calloc/free. We never call them
  // and linker garbage collection strips them, but that isn't guaranteed.

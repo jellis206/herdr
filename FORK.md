@@ -31,9 +31,23 @@ clients never inspect their own filesystem to guess a remote project's layout.
 ## Build and sync
 
 Dotfiles `.config/dev_tools.json` builds this checkout into `~/.local/bin/herdr`.
-Zig 0.16.0 is pinned through dotfiles' asdf toolchain configuration; `ZIG` may
-explicitly override its location. Run `devtools herdr` after toolchain setup.
-Do not use `herdr update` to update this fork: it installs upstream binaries.
+It uses the asdf default Zig; `ZIG` may explicitly override its location. Run
+`devtools herdr` after toolchain setup. Do not use `herdr update` to update this
+fork: it installs upstream binaries.
+
+## Zig 0.17 and libghostty-vt
+
+This fork builds with Zig 0.17. `vendor/libghostty-vt` is re-vendored from
+Ghostty `main` (see `vendor/libghostty-vt.vendor.json`), which requires the
+same Zig minor version; upstream Herdr still pins Zig 0.16 and an older Ghostty.
+Herdr's local patches were rebased onto the new base and renumber their C enum
+values past upstream's (see `vendor/libghostty-vt.patches.md`). CI workflows and
+`AGENTS.md` still say 0.16 to keep upstream merges small.
+
+To refresh: re-run `scripts/vendor_libghostty_vt.py --source-repo <ghostty>`,
+reapply the patches, run `scripts/generate_libghostty_bindings.sh` (bindgen
+0.72.1), then `just test`. An upstream Herdr re-vendor will conflict in
+`vendor/`; resolve by re-vendoring rather than merging hunks.
 
 `jellis206/fork-sync` automatically discovers non-archived forks, including this
 one. It merges upstream changes daily or opens a `sync/upstream` conflict PR.

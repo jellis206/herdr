@@ -51,7 +51,7 @@ def setup(accept_license: bool) -> None:
     if not shutil.which("xwin"):
         raise ValueError("Install xwin first: cargo install xwin --locked")
     if not shutil.which(os.environ.get("ZIG", "zig")):
-        raise ValueError("Install Zig 0.16.0 first, or set ZIG to its executable.")
+        raise ValueError("Install Zig 0.17.0 first, or set ZIG to its executable.")
     SDK_ROOT.mkdir(parents=True, exist_ok=True)
     # SDK downloads can be large; /tmp is often RAM-backed on Linux.
     temp_parent = "/var/tmp" if sys.platform.startswith("linux") else None

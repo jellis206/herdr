@@ -102,7 +102,7 @@ fn main() {
                 panic!(
                     "zig executable not found (looked for {zig:?}; set the ZIG \
                      environment variable to point at the zig binary). Building \
-                     the vendored libghostty-vt requires Zig 0.16.0: install it from \
+                     the vendored libghostty-vt requires Zig 0.17.0: install it from \
                      https://ziglang.org/download/, then retry the build"
                 );
             }
@@ -111,8 +111,8 @@ fn main() {
     assert!(
         status.success(),
         "zig build for vendored libghostty-vt failed: {status}. \
-         Building Herdr requires Zig 0.16.0; check `zig version` \
-         or set ZIG to the path of a Zig 0.16.0 binary, then retry"
+         Building Herdr requires Zig 0.17.0; check `zig version` \
+         or set ZIG to the path of a Zig 0.17.0 binary, then retry"
     );
 
     let mut lib_dir = zig_prefix.join("lib");

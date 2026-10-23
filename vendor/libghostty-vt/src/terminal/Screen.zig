@@ -391,6 +391,30 @@ pub fn assertIntegrity(self: *const Screen) void {
     }
 }
 
+/// The memory held by a screen. Returned by `memoryUsage`.
+pub const MemoryUsage = struct {
+    /// Page memory, which holds every cell along with its styles,
+    /// graphemes and hyperlinks.
+    pages: PageList.MemoryUsage = .{},
+
+    /// Bytes of image data stored through the Kitty graphics protocol.
+    /// Images are stored outside of pages, so this is not part of `pages`.
+    /// Always zero when Kitty graphics is disabled at build time.
+    image_bytes: usize = 0,
+};
+
+/// Return the memory held by this screen. Like `PageList.memoryUsage`,
+/// this never restores a compressed page but does visit every page.
+pub fn memoryUsage(self: *const Screen) MemoryUsage {
+    return .{
+        .pages = self.pages.memoryUsage(),
+        .image_bytes = if (comptime build_options.kitty_graphics)
+            self.kitty_images.total_bytes
+        else
+            0,
+    };
+}
+
 /// Reset the screen according to the logic of a DEC RIS sequence.
 ///
 /// - Clears the screen and attempts to reclaim memory.
@@ -429,12 +453,18 @@ pub fn reset(self: *Screen) void {
         // Reset kitty graphics storage
         const image_limits = self.kitty_images.image_limits;
         const total_limit = self.kitty_images.total_limit;
+        const dirty = self.kitty_images.dirty;
         self.kitty_images.deinit(self.alloc, self);
         self.kitty_images = .{
-            .dirty = true,
+            // Carry the counter over instead of starting from zero.
+            // A consumer that saw the old storage's value must see a
+            // different one after the reset, and a fresh counter could
+            // happen to match it.
+            .dirty = dirty,
             .image_limits = image_limits,
             .total_limit = total_limit,
         };
+        self.kitty_images.markDirty();
     }
 
     // Reset our basic state
@@ -635,7 +665,23 @@ pub fn increaseCapacity(
     // capacity below it will be short the ref count on our
     // current style and hyperlink, so we need to init those.
     const new_node = try self.pages.increaseCapacity(node, adjustment);
-    const new_page: *Page = new_node.page();
+    assert(self.cursor.page_pin.node == new_node);
+    self.cursorPageReplaced();
+
+    return new_node;
+}
+
+/// Rebuild the cursor state that lives in page memory after the page the
+/// cursor was on has been destroyed and PageList moved the tracked cursor
+/// pin onto another page. This happens when increaseCapacity replaces the
+/// cursor page or when scrollback pruning removes it.
+///
+/// The cursor style and hyperlink IDs, as well as the cached row and cell
+/// pointers, all refer to the destroyed page, so this never touches it.
+/// The style and hyperlink are added to the page the pin now points to and
+/// then the cursor is reloaded.
+fn cursorPageReplaced(self: *Screen) void {
+    const new_page: *Page = self.cursor.page_pin.node.page();
 
     // Re-add the style, if the page somehow doesn't have enough
     // memory to add it, we emit a warning and gracefully degrade
@@ -647,7 +693,7 @@ pub fn increaseCapacity(
         ) catch |err| id: {
             // TODO: Should we increase the capacity further in this case?
             log.warn(
-                "(Screen.increaseCapacity) Failed to add cursor style back to page, err={}",
+                "(Screen.cursorPageReplaced) Failed to add cursor style back to page, err={}",
                 .{err},
             );
 
@@ -669,7 +715,7 @@ pub fn increaseCapacity(
         self.startHyperlinkOnce(link.*) catch |err| {
             // TODO: Should we increase the capacity further in this case?
             log.warn(
-                "(Screen.increaseCapacity) Failed to add cursor hyperlink back to page, err={}",
+                "(Screen.cursorPageReplaced) Failed to add cursor hyperlink back to page, err={}",
                 .{err},
             );
         };
@@ -682,8 +728,6 @@ pub fn increaseCapacity(
     // Reload the cursor information because the pin changed.
     // So our page row/cell and so on are all off.
     self.cursorReload();
-
-    return new_node;
 }
 
 /// Clone the cells in columns [x_start, x_end) of a source row into
@@ -926,7 +970,7 @@ pub fn cursorDownScroll(self: *Screen) !void {
 
     if (comptime build_options.kitty_graphics) {
         // Scrolling dirties the images because it updates their placements pins.
-        self.kitty_images.dirty = true;
+        self.kitty_images.markDirty();
     }
 
     // If we have no scrollback, then we shift all our rows instead.
@@ -978,19 +1022,30 @@ pub fn cursorDownScroll(self: *Screen) !void {
         // allocate, prune scrollback, whatever.
         _ = try self.pages.grow();
 
+        // If our pin page changed, then grow() pruned the page our cursor
+        // was on. This can only happen with a single row active area. With
+        // more rows, the old cursor row is still in the active area after
+        // growing and pruning stops at the page containing the active top.
+        //
+        // The pruned page took the cursor's cached row and cell pointers
+        // and its style and hyperlink references with it, so none of those
+        // may be used until they're rebuilt on the new page.
+        const pruned = old_pin.node != self.cursor.page_pin.node;
+
         const new_pin = new_pin: {
             // Calculate this before cursorChangePin because that function may
             // adjust the underlying page and invalidate references to its pin.
 
-            // If our pin page change it means that the page that the pin
-            // was on was pruned. In this case, grow() moves the pin to
-            // the top-left of the new page. This effectively moves it by
-            // one already, we just need to fix up the x value.
-            const page_pin = if (old_pin.node == self.cursor.page_pin.node)
+            // If our page was pruned, grow() moved the pin to the top-left
+            // of the new page. This effectively moves it by one already, we
+            // just need to fix up the x value. Pruning also marks the pin as
+            // garbage, but it now points exactly where the cursor belongs.
+            const page_pin = if (!pruned)
                 self.cursor.page_pin.down(1).?
             else reuse: {
                 var pin = self.cursor.page_pin.*;
                 pin.x = self.cursor.x;
+                pin.garbage = false;
                 break :reuse pin;
             };
 
@@ -1008,7 +1063,12 @@ pub fn cursorDownScroll(self: *Screen) !void {
             break :new_pin page_pin;
         };
 
-        if (self.cursor.page_pin.node == new_pin.node) {
+        if (pruned) {
+            // The old page no longer exists, so we can't go through
+            // cursorChangePin (which releases references from it).
+            self.cursor.page_pin.* = new_pin;
+            self.cursorPageReplaced();
+        } else if (self.cursor.page_pin.node == new_pin.node) {
             // Scrolling normally stays within one page. Resolve the page once
             // while refreshing the cursor pointers. The cursor already holds
             // live row and cell pointers into this mapping, and grow does not
@@ -1639,7 +1699,7 @@ pub inline fn scroll(self: *Screen, behavior: Scroll) void {
         // No matter what, scrolling marks our image state as dirty since
         // it could move placements. If there are no placements or no images
         // this is still a very cheap operation.
-        self.kitty_images.dirty = true;
+        self.kitty_images.markDirty();
     }
 
     switch (behavior) {
@@ -1664,7 +1724,7 @@ pub inline fn scrollClear(self: *Screen) !void {
         // No matter what, scrolling marks our image state as dirty since
         // it could move placements. If there are no placements or no images
         // this is still a very cheap operation.
-        self.kitty_images.dirty = true;
+        self.kitty_images.markDirty();
     }
 }
 
@@ -1683,6 +1743,10 @@ pub inline fn eraseHistory(
     defer self.assertIntegrity();
     self.pages.eraseHistory(bl);
     self.cursorReload();
+
+    // Erasing rows removes placements attached to them and shifts the
+    // ones below, so placements may have moved.
+    if (comptime build_options.kitty_graphics) self.kitty_images.markDirty();
 }
 
 pub inline fn eraseActive(
@@ -1692,6 +1756,10 @@ pub inline fn eraseActive(
     defer self.assertIntegrity();
     self.pages.eraseActive(y);
     self.cursorReload();
+
+    // Erasing rows removes placements attached to them and shifts the
+    // ones below, so placements may have moved.
+    if (comptime build_options.kitty_graphics) self.kitty_images.markDirty();
 }
 
 // Clear the region specified by tl and bl, inclusive. Cleared cells are
@@ -1825,14 +1893,8 @@ pub fn clearCells(
     }
 
     if (comptime build_options.kitty_graphics) {
-        if (row.kitty_virtual_placeholder and
-            cells.len == page.size.cols)
-        {
-            for (cells) |c| {
-                if (c.codepoint() == kitty.graphics.unicode.placeholder) {
-                    break;
-                }
-            } else row.kitty_virtual_placeholder = false;
+        if (cells.len == page.size.cols) {
+            row.kitty_virtual_placeholder = false;
         }
     }
 
@@ -2023,6 +2085,10 @@ pub const Resize = struct {
     /// currently at a prompt. This detects OSC133 prompts lines and clears
     /// them. If set to `.last`, only the most recent prompt line is cleared.
     prompt_redraw: osc.semantic_prompt.Redraw = .false,
+
+    /// Whether the resize may pull rows out of scrollback back into the
+    /// active area. See PageList.Resize for details.
+    pull_scrollback: bool = true,
 };
 
 const resize_tw = tripwire.module(enum {
@@ -2119,6 +2185,7 @@ pub inline fn resize(
             .y = self.cursor.y,
             .pin = self.cursor.page_pin,
         },
+        .pull_scrollback = opts.pull_scrollback,
     });
 
     // No more failures are possible after this. Enforced by compiler
@@ -2126,7 +2193,7 @@ pub inline fn resize(
     errdefer comptime unreachable;
 
     // Resizing moves image placements, so mark their geometry as dirty.
-    if (comptime build_options.kitty_graphics) self.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) self.kitty_images.markDirty();
 
     // If we have no scrollback and we shrunk our rows, we must explicitly
     // erase our history. This is because PageList always keeps at least
@@ -2136,6 +2203,13 @@ pub inline fn resize(
     // If our cursor was updated, we do a full reload so all our cursor
     // state is correct.
     self.cursorReload();
+
+    // If resize moved a cursor with pending wrap away from the right edge,
+    // advance to the next cell instead of wrapping on the next print.
+    if (self.cursor.pending_wrap and self.cursor.x != opts.cols - 1) {
+        self.cursor.pending_wrap = false;
+        self.cursorRight(1);
+    }
 
     // Clear any redrawable prompt after the fallible resize but before
     // restoring the cursor style and hyperlink, so cleared cells retain the
@@ -2422,11 +2496,11 @@ pub fn setAttribute(
         },
 
         .@"8_fg" => |n| {
-            self.cursor.style.fg_color = .{ .palette = @intFromEnum(n) };
+            self.cursor.style.fg_color = .{ .palette = @backingInt(n) };
         },
 
         .@"8_bg" => |n| {
-            self.cursor.style.bg_color = .{ .palette = @intFromEnum(n) };
+            self.cursor.style.bg_color = .{ .palette = @backingInt(n) };
         },
 
         .reset_fg => self.cursor.style.fg_color = .none,
@@ -2434,11 +2508,11 @@ pub fn setAttribute(
         .reset_bg => self.cursor.style.bg_color = .none,
 
         .@"8_bright_fg" => |n| {
-            self.cursor.style.fg_color = .{ .palette = @intFromEnum(n) };
+            self.cursor.style.fg_color = .{ .palette = @backingInt(n) };
         },
 
         .@"8_bright_bg" => |n| {
-            self.cursor.style.bg_color = .{ .palette = @intFromEnum(n) };
+            self.cursor.style.bg_color = .{ .palette = @backingInt(n) };
         },
 
         .@"256_fg" => |idx| {
@@ -2661,6 +2735,58 @@ pub fn appendGrapheme(
                 // crash.
                 log.err("grapheme append failed after capacity increase", .{});
                 return err2;
+            };
+        },
+    };
+}
+
+/// Set the graphemes of the given cell within the current cursor row.
+/// The cell must have a codepoint and no graphemes yet.
+pub fn setGraphemes(
+    self: *Screen,
+    cell: *Cell,
+    cps: []const u21,
+) PageList.IncreaseCapacityError!void {
+    defer self.cursor.page_pin.node.page().assertIntegrity();
+    self.cursor.page_pin.node.page().setGraphemes(
+        self.cursor.page_row,
+        cell,
+        cps,
+    ) catch |err| switch (err) {
+        error.GraphemeMapOutOfMemory,
+        error.GraphemeAllocOutOfMemory,
+        => {
+            // See appendGrapheme for the capacity increase and cell reload.
+            const cell_idx: usize = cell_idx: {
+                const cells: [*]Cell = @ptrCast(self.cursor.page_cell);
+                const zero: [*]Cell = cells - self.cursor.x;
+                const target: [*]Cell = @ptrCast(cell);
+                const cell_idx = (@intFromPtr(target) - @intFromPtr(zero)) / @sizeOf(Cell);
+                break :cell_idx cell_idx;
+            };
+
+            _ = try self.increaseCapacity(
+                self.cursor.page_pin.node,
+                .grapheme_bytes,
+            );
+
+            const reloaded_cell: *Cell = switch (std.math.order(cell_idx, self.cursor.x)) {
+                .eq => self.cursor.page_cell,
+                .lt => self.cursorCellLeft(@intCast(self.cursor.x - cell_idx)),
+                .gt => self.cursorCellRight(@intCast(cell_idx - self.cursor.x)),
+            };
+
+            self.cursor.page_pin.node.page().setGraphemes(
+                self.cursor.page_row,
+                reloaded_cell,
+                cps,
+            ) catch |err2| {
+                comptime assert(@TypeOf(err2) == Page.GraphemeError);
+                // This should never happen because we just increased capacity.
+                // Log loudly but still return an error so we don't just
+                // crash.
+                log.err("grapheme set failed after capacity increase err={}", .{err2});
+                return error.OutOfMemory;
             };
         },
     };
@@ -3138,6 +3264,9 @@ pub fn selectLine(self: *const Screen, opts: SelectLine) ?Selection {
         const whitespace = opts.whitespace orelse break :start start_pin;
         var it = start_pin.cellIterator(.right_down, end_pin);
         while (it.next()) |p| {
+            // CellIterator only limits the row, so bound the column too.
+            if (end_pin.before(p)) return null;
+
             const cell = p.rowAndCell().cell;
             if (!cell.hasText()) continue;
 
@@ -3284,14 +3413,13 @@ pub fn selectWord(
 
     // If our cell is empty we can't select a word, because we can't select
     // areas where the screen is not yet written.
-    const start_cell = pin.rowAndCell().cell;
-    if (!start_cell.hasText()) return null;
+    const start_codepoint = selectWordCodepoint(pin) orelse return null;
 
     // Determine if we are a boundary or not to determine what our boundary is.
     const expect_boundary = std.mem.indexOfScalar(
         u21,
         boundary_codepoints,
-        start_cell.content.codepoint.data,
+        start_codepoint,
     ) != null;
 
     // Go forwards to find our end boundary
@@ -3299,25 +3427,21 @@ pub fn selectWord(
         var it = pin.cellIterator(.right_down, null);
         var prev = it.next().?; // Consume one, our start
         while (it.next()) |p| {
-            const rac = p.rowAndCell();
-            const cell = rac.cell;
+            // Only cross a row boundary if the previous row wraps.
+            if (prev.x == prev.node.cols() - 1 and !prev.rowAndCell().row.wrap) {
+                break :end prev;
+            }
 
             // If we reached an empty cell its always a boundary
-            if (!cell.hasText()) break :end prev;
+            const codepoint = selectWordCodepoint(p) orelse break :end prev;
 
             // If we do not match our expected set, we hit a boundary
             const this_boundary = std.mem.indexOfScalar(
                 u21,
                 boundary_codepoints,
-                cell.content.codepoint.data,
+                codepoint,
             ) != null;
             if (this_boundary != expect_boundary) break :end prev;
-
-            // If we are going to the next row and it isn't wrapped, we
-            // return the previous.
-            if (p.x == p.node.cols() - 1 and !rac.row.wrap) {
-                break :end p;
-            }
 
             prev = p;
         }
@@ -3331,7 +3455,6 @@ pub fn selectWord(
         var prev = it.next().?; // Consume one, our start
         while (it.next()) |p| {
             const rac = p.rowAndCell();
-            const cell = rac.cell;
 
             // If we are going to the next row and it isn't wrapped, we
             // return the previous.
@@ -3340,13 +3463,13 @@ pub fn selectWord(
             }
 
             // If we reached an empty cell its always a boundary
-            if (!cell.hasText()) break :start prev;
+            const codepoint = selectWordCodepoint(p) orelse break :start prev;
 
             // If we do not match our expected set, we hit a boundary
             const this_boundary = std.mem.indexOfScalar(
                 u21,
                 boundary_codepoints,
-                cell.content.codepoint.data,
+                codepoint,
             ) != null;
             if (this_boundary != expect_boundary) break :start prev;
 
@@ -3357,6 +3480,22 @@ pub fn selectWord(
     };
 
     return .init(start, end, false);
+}
+
+/// Return the codepoint for word selection, following wide-character spacers.
+fn selectWordCodepoint(pin: Pin) ?u21 {
+    const rac = pin.rowAndCell();
+    const cell = switch (rac.cell.wide) {
+        .narrow, .wide => rac.cell,
+        .spacer_tail => pin.left(1).rowAndCell().cell,
+        .spacer_head => cell: {
+            const next_row = pin.down(1) orelse return null;
+            const owner = &next_row.cells(.all)[0];
+            if (owner.wide != .wide) return null;
+            break :cell owner;
+        },
+    };
+    return if (cell.hasText()) cell.content.codepoint.data else null;
 }
 
 /// Like selectWord, but returns null instead of a partial selection when the
@@ -3373,14 +3512,13 @@ pub fn selectWordBounded(
 
     // If our cell is empty we can't select a word, because we can't select
     // areas where the screen is not yet written.
-    const start_cell = pin.rowAndCell().cell;
-    if (!start_cell.hasText()) return null;
+    const start_codepoint = selectWordCodepoint(pin) orelse return null;
 
     // Determine if we are a boundary or not to determine what our boundary is.
     const expect_boundary = std.mem.indexOfScalar(
         u21,
         boundary_codepoints,
-        start_cell.content.codepoint.data,
+        start_codepoint,
     ) != null;
 
     // Go forwards to find our end boundary
@@ -3390,32 +3528,22 @@ pub fn selectWordBounded(
         while (it.next()) |p| {
             if (remaining == 0) return null;
             remaining -= 1;
-            const rac = p.rowAndCell();
-            const cell = rac.cell;
 
-            // Wide-cell spacers are part of the same displayed word.
-            if (cell.wide == .spacer_tail or cell.wide == .spacer_head) {
-                prev = p;
-                if (p.x == p.node.cols() - 1 and !rac.row.wrap) break :end p;
-                continue;
+            // Only cross a row boundary if the previous row wraps.
+            if (prev.x == prev.node.cols() - 1 and !prev.rowAndCell().row.wrap) {
+                break :end prev;
             }
 
             // If we reached an empty cell its always a boundary
-            if (!cell.hasText()) break :end prev;
+            const codepoint = selectWordCodepoint(p) orelse break :end prev;
 
             // If we do not match our expected set, we hit a boundary
             const this_boundary = std.mem.indexOfScalar(
                 u21,
                 boundary_codepoints,
-                cell.content.codepoint.data,
+                codepoint,
             ) != null;
             if (this_boundary != expect_boundary) break :end prev;
-
-            // If we are going to the next row and it isn't wrapped, we
-            // return the previous.
-            if (p.x == p.node.cols() - 1 and !rac.row.wrap) {
-                break :end p;
-            }
 
             prev = p;
         }
@@ -3431,7 +3559,6 @@ pub fn selectWordBounded(
             if (remaining == 0) return null;
             remaining -= 1;
             const rac = p.rowAndCell();
-            const cell = rac.cell;
 
             // If we are going to the next row and it isn't wrapped, we
             // return the previous.
@@ -3439,19 +3566,14 @@ pub fn selectWordBounded(
                 break :start prev;
             }
 
-            if (cell.wide == .spacer_tail or cell.wide == .spacer_head) {
-                prev = p;
-                continue;
-            }
-
             // If we reached an empty cell its always a boundary
-            if (!cell.hasText()) break :start prev;
+            const codepoint = selectWordCodepoint(p) orelse break :start prev;
 
             // If we do not match our expected set, we hit a boundary
             const this_boundary = std.mem.indexOfScalar(
                 u21,
                 boundary_codepoints,
-                cell.content.codepoint.data,
+                codepoint,
             ) != null;
             if (this_boundary != expect_boundary) break :start prev;
 
@@ -4074,7 +4196,7 @@ test "Screen read and write no scrollback large" {
 
     for (0..1_000) |i| {
         var buf: [128]u8 = undefined;
-        const str = try std.fmt.bufPrint(&buf, "{}\n", .{i});
+        const str = try std.mem.print(&buf, "{}\n", .{i});
         try s.testWriteString(str);
     }
     try s.testWriteString("1000");
@@ -6385,7 +6507,7 @@ test "Screen: scroll above hyperlink-dense row to fresh page" {
     // page can hold with default hyperlink capacity.
     for (0..s.pages.cols) |i| {
         var buf: [64]u8 = undefined;
-        const uri = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{i});
+        const uri = try std.mem.print(&buf, "http://example.com/{d}", .{i});
         try s.startHyperlink(uri, null);
         try s.testWriteString("A");
         s.endHyperlink();
@@ -6441,7 +6563,7 @@ test "Screen: scroll above hyperlink-dense row to fresh page" {
         const id = page.lookupHyperlink(list_cell.cell).?;
         const link = page.hyperlink_set.get(page.memory, id);
         var buf: [64]u8 = undefined;
-        const expected = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{x});
+        const expected = try std.mem.print(&buf, "http://example.com/{d}", .{x});
         try testing.expectEqualStrings(expected, link.uri.slice(page.memory));
     }
 }
@@ -6468,7 +6590,7 @@ test "Screen: scroll above hyperlink-dense row to existing page" {
     // more than a page can hold with default hyperlink capacity.
     for (0..s.pages.cols) |i| {
         var buf: [64]u8 = undefined;
-        const uri = try std.fmt.bufPrint(&buf, "http://example.com/{d}", .{i});
+        const uri = try std.mem.print(&buf, "http://example.com/{d}", .{i});
         try s.startHyperlink(uri, null);
         try s.testWriteString("A");
         s.endHyperlink();
@@ -7360,6 +7482,137 @@ test "Screen: resize (no reflow) more rows with scrollback cursor end" {
     }
 }
 
+test "Screen: resize (no reflow) more rows no scrollback pull" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 7, .rows = 3, .max_scrollback_bytes = 2 });
+    defer s.deinit();
+    const str = "1ABCD\n2EFGH\n3IJKL\n4ABCD\n5EFGH";
+    try s.testWriteString(str);
+
+    // Cursor is at the bottom so this would normally pull scrollback.
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+    try s.resize(.{
+        .cols = 7,
+        .rows = 10,
+        .reflow = false,
+        .pull_scrollback = false,
+    });
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("3IJKL\n4ABCD\n5EFGH", contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings(str, contents);
+    }
+}
+
+test "Screen: resize more cols no scrollback pull" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 5, .rows = 3, .max_scrollback_bytes = 2 });
+    defer s.deinit();
+    try s.testWriteString("1AAAA\n2BBBB\n3CCCCDD\n4E");
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("3CCCC\nDD\n4E", contents);
+    }
+
+    // The wrapped line in the active area unwraps, freeing up a row. This
+    // would normally pull "2BBBB" back but we should get a blank row at
+    // the bottom instead.
+    try s.resize(.{ .cols = 10, .rows = 3, .pull_scrollback = false });
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.x);
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("3CCCCDD\n4E", contents);
+    }
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .screen = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("1AAAA\n2BBBB\n3CCCCDD\n4E", contents);
+    }
+}
+
+test "Screen: resize more cols no scrollback pull wrap straddles scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 5, .rows = 3, .max_scrollback_bytes = 2 });
+    defer s.deinit();
+    try s.testWriteString("1AAAA\n2BBBBXX\n3C\n4D");
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("XX\n3C\n4D", contents);
+    }
+
+    // The line isn't fully in scrollback so it is allowed to unwrap
+    // back into view, but nothing above it is.
+    try s.resize(.{ .cols = 10, .rows = 3, .pull_scrollback = false });
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2BBBBXX\n3C\n4D", contents);
+    }
+}
+
+test "Screen: resize more cols and rows no scrollback pull" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 5, .rows = 3, .max_scrollback_bytes = 2 });
+    defer s.deinit();
+    try s.testWriteString("1AAAA\n2BBBB\n3CCCCDD\n4E");
+
+    try s.resize(.{ .cols = 10, .rows = 5, .pull_scrollback = false });
+    try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("3CCCCDD\n4E", contents);
+    }
+}
+
+test "Screen: resize less cols no scrollback pull" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 10, .rows = 3, .max_scrollback_bytes = 2 });
+    defer s.deinit();
+    try s.testWriteString("0Z\n1AAAA\n2BBBBXX\n3C");
+
+    // Wrapping needs more rows than we have so the top of the active
+    // area still scrolls off as usual.
+    try s.resize(.{ .cols = 5, .rows = 3, .pull_scrollback = false });
+    try testing.expectEqual(@as(size.CellCountInt, 2), s.cursor.y);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .active = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("2BBBB\nXX\n3C", contents);
+    }
+}
+
 test "Screen: resize (no reflow) less rows with scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -7521,6 +7774,7 @@ test "Screen: resize more rows with populated scrollback" {
 
     // Set our cursor to be on the "4"
     s.cursorAbsolute(0, 1);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -7562,8 +7816,9 @@ test "Screen: resize more cols no reflow" {
     const cursor = s.cursor;
     try s.resize(.{ .cols = 10, .rows = 3 });
 
-    // Cursor should not move
-    try testing.expectEqual(cursor.x, s.cursor.x);
+    // Pending wrap becomes the next insertion position.
+    try testing.expect(!s.cursor.pending_wrap);
+    try testing.expectEqual(cursor.x + 1, s.cursor.x);
     try testing.expectEqual(cursor.y, s.cursor.y);
 
     {
@@ -7742,6 +7997,7 @@ test "Screen: resize more cols with reflow that fits full width" {
 
     // Let's put our cursor on row 2, where the soft wrap is
     s.cursorAbsolute(0, 1);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -7821,6 +8077,7 @@ test "Screen: resize more cols with reflow that forces more wrapping" {
 
     // Let's put our cursor on row 2, where the soft wrap is
     s.cursorAbsolute(0, 1);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -7863,6 +8120,7 @@ test "Screen: resize more cols with reflow that unwraps multiple times" {
 
     // Let's put our cursor on row 2, where the soft wrap is
     s.cursorAbsolute(0, 2);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -7911,6 +8169,7 @@ test "Screen: resize more cols with populated scrollback" {
 
     // // Set our cursor to be on the "5"
     s.cursorAbsolute(0, 2);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -8031,6 +8290,7 @@ test "Screen: resize more cols with reflow" {
 
     // Let's put our cursor on row 2, where the soft wrap is
     s.cursorAbsolute(0, 2);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -8092,10 +8352,6 @@ test "Screen: resize errors preserve state" {
             .origin = false,
             .charset = s.charset,
         };
-
-        if (comptime build_options.kitty_graphics) {
-            s.kitty_images.dirty = false;
-        }
 
         // Keep a shallow copy for all non-page state and a byte-for-byte
         // copy of the sole page so reference counts and prompt contents are
@@ -8275,8 +8531,9 @@ test "Screen: resize more rows and cols with wrapping" {
 
     try s.resize(.{ .cols = 5, .rows = 10 });
 
-    // Cursor should move due to wrapping
-    try testing.expectEqual(@as(size.CellCountInt, 3), s.cursor.x);
+    // Reflow leaves room after the last printed cell.
+    try testing.expect(!s.cursor.pending_wrap);
+    try testing.expectEqual(@as(size.CellCountInt, 4), s.cursor.x);
     try testing.expectEqual(@as(size.CellCountInt, 1), s.cursor.y);
 
     {
@@ -8302,6 +8559,7 @@ test "Screen: resize less rows no scrollback" {
     try s.testWriteString(str);
 
     s.cursorAbsolute(0, 0);
+    s.cursor.pending_wrap = false;
     const cursor = s.cursor;
     try s.resize(.{ .cols = 5, .rows = 1 });
 
@@ -8335,6 +8593,7 @@ test "Screen: resize less rows moving cursor" {
 
     // Put our cursor on the last line
     s.cursorAbsolute(1, 2);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -8503,6 +8762,7 @@ test "Screen: resize less cols with reflow but row space" {
 
     // Put our cursor on the end
     s.cursorAbsolute(4, 0);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -8668,6 +8928,7 @@ test "Screen: resize less cols with reflow previously wrapped and scrollback" {
 
     // Put our cursor on the end
     s.cursorAbsolute(s.pages.cols - 1, s.pages.rows - 1);
+    s.cursor.pending_wrap = false;
     {
         const list_cell = s.pages.getCell(.{ .active = .{
             .x = s.cursor.x,
@@ -9739,6 +10000,25 @@ test "Screen: selectLine semantic prompt boundary" {
     }
 }
 
+test "Screen: selectLine semantic boundary around unwritten cells" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{ .cols = 5, .rows = 1, .max_scrollback_bytes = 0 });
+    defer s.deinit();
+
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("x");
+    s.cursorRight(2);
+    try s.testWriteString("m");
+
+    for (1..3) |x| {
+        const pin = s.pages.pin(.{ .active = .{ .x = @intCast(x) } }).?;
+        try testing.expect(s.selectLine(.{ .pin = pin }) == null);
+    }
+}
+
 test "Screen: selectLine semantic prompt to input boundary" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -10253,6 +10533,140 @@ test "Screen: selectWord" {
             .x = 2,
             .y = 2,
         } }, s.pages.pointFromPin(.screen, sel.end()).?);
+    }
+}
+
+test "Screen: selectWord at hard line breaks" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    const cases = [_]struct { cols: size.CellCountInt, text: []const u8 }{
+        .{ .cols = 5, .text = "abcde\nfghij" },
+        .{ .cols = 5, .text = "     \n     " },
+        .{ .cols = 1, .text = "a\nb" },
+        .{ .cols = 1, .text = " \n " },
+    };
+    for (cases) |case| {
+        var s = try init(io, alloc, .{
+            .cols = case.cols,
+            .rows = 2,
+            .max_scrollback_bytes = 0,
+        });
+        defer s.deinit();
+        try s.testWriteString(case.text);
+
+        for (0..2) |y| {
+            for (0..case.cols) |x| {
+                var sel = s.selectWord(s.pages.pin(.{ .active = .{
+                    .x = @intCast(x),
+                    .y = @intCast(y),
+                } }).?, &.{ 0, ' ' }).?;
+                defer sel.deinit(&s);
+                try testing.expectEqual(point.Point{ .screen = .{
+                    .x = 0,
+                    .y = @intCast(y),
+                } }, s.pages.pointFromPin(.screen, sel.start()).?);
+                try testing.expectEqual(point.Point{ .screen = .{
+                    .x = case.cols - 1,
+                    .y = @intCast(y),
+                } }, s.pages.pointFromPin(.screen, sel.end()).?);
+            }
+        }
+    }
+}
+
+test "Screen: selectWord across soft-wrap at right edge" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var s = try init(io, alloc, .{
+        .cols = 5,
+        .rows = 3,
+        .max_scrollback_bytes = 0,
+    });
+    defer s.deinit();
+    try s.testWriteString("abcdefghij\nklmno");
+
+    for (0..2) |y| {
+        for (0..5) |x| {
+            var sel = s.selectWord(s.pages.pin(.{ .active = .{
+                .x = @intCast(x),
+                .y = @intCast(y),
+            } }).?, &.{ 0, ' ' }).?;
+            defer sel.deinit(&s);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = 0,
+                .y = 0,
+            } }, s.pages.pointFromPin(.screen, sel.start()).?);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = 4,
+                .y = 1,
+            } }, s.pages.pointFromPin(.screen, sel.end()).?);
+        }
+    }
+}
+
+test "Screen: selectWord wide characters" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    const cases = [_]struct {
+        text: []const u8,
+        cols: size.CellCountInt = 10,
+        boundary_codepoints: []const u21 = &.{ 0, ' ' },
+        start: usize = 0,
+        end: usize,
+        expected: []const u8,
+    }{
+        .{ .text = "日本語", .end = 5, .expected = "日本語" },
+        .{ .text = "日本語", .end = 5, .expected = "日本語", .boundary_codepoints = &.{' '} },
+        .{ .text = "a日b語c", .end = 6, .expected = "a日b語c" },
+        .{ .text = " 日本語 ", .start = 1, .end = 6, .expected = "日本語" },
+        .{ .text = "日本語", .cols = 4, .end = 5, .expected = "日本語" },
+        .{ .text = "日本語", .cols = 5, .end = 6, .expected = "日本語" },
+        .{ .text = "日本\n語文", .cols = 4, .end = 3, .expected = "日本" },
+        .{ .text = "日本\n語文", .cols = 4, .start = 4, .end = 7, .expected = "語文" },
+        .{ .text = "a語b", .boundary_codepoints = &.{ 0, '語' }, .end = 0, .expected = "a" },
+        .{ .text = "a語b", .boundary_codepoints = &.{ 0, '語' }, .start = 1, .end = 2, .expected = "語" },
+        .{ .text = "a語b", .boundary_codepoints = &.{ 0, '語' }, .start = 3, .end = 3, .expected = "b" },
+        .{ .text = "abcd語ef", .cols = 5, .boundary_codepoints = &.{ 0, '語' }, .end = 3, .expected = "abcd" },
+        .{ .text = "abcd語ef", .cols = 5, .boundary_codepoints = &.{ 0, '語' }, .start = 4, .end = 6, .expected = "語" },
+        .{ .text = "abcd語ef", .cols = 5, .boundary_codepoints = &.{ 0, '語' }, .start = 7, .end = 8, .expected = "ef" },
+    };
+
+    for (cases) |case| {
+        var s = try init(io, alloc, .{
+            .cols = case.cols,
+            .rows = 4,
+            .max_scrollback_bytes = 0,
+        });
+        defer s.deinit();
+        try s.testWriteString(case.text);
+
+        // Selecting any cell in the word should select the whole word.
+        for (case.start..case.end + 1) |offset| {
+            const pin = s.pages.pin(.{ .active = .{
+                .x = @intCast(offset % case.cols),
+                .y = @intCast(offset / case.cols),
+            } }).?;
+            var sel = s.selectWord(pin, case.boundary_codepoints).?;
+            defer sel.deinit(&s);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = @intCast(case.start % case.cols),
+                .y = @intCast(case.start / case.cols),
+            } }, s.pages.pointFromPin(.screen, sel.start()).?);
+            try testing.expectEqual(point.Point{ .screen = .{
+                .x = @intCast(case.end % case.cols),
+                .y = @intCast(case.end / case.cols),
+            } }, s.pages.pointFromPin(.screen, sel.end()).?);
+
+            const contents = try s.selectionString(alloc, .{ .sel = sel });
+            defer alloc.free(contents);
+            try testing.expectEqualStrings(case.expected, contents);
+        }
     }
 }
 
@@ -11318,8 +11732,8 @@ test "Screen: cursorSetHyperlink OOM + URI too large for string alloc" {
     // Start a hyperlink with a URI that just barely fits in the string alloc.
     // This will ensure that additional string alloc space is needed for the
     // redundant copy of the URI when the page is re-alloced.
-    const uri = "a" ** (pagepkg.std_capacity.string_bytes - 8);
-    try s.startHyperlink(uri, null);
+    const uri: [pagepkg.std_capacity.string_bytes - 8]u8 = @splat('a');
+    try s.startHyperlink(&uri, null);
 
     // Figure out how many cells should can have hyperlinks in this page,
     // and write twice that number, to guarantee the capacity needs to be

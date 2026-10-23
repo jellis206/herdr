@@ -17,7 +17,7 @@ upstream discussion: not opened
 
 upstream pr: not opened
 
-vendored base: `44f2a44df7e8c4a0c6df3f7d872ef3d7ead88e51`
+vendored base: `22f100c6367045bb5fc86172f837047dee2f7670`
 
 local files:
 
@@ -60,20 +60,17 @@ upstream discussion: not opened
 
 upstream pr: not opened
 
-vendored base: `44f2a44df7e8c4a0c6df3f7d872ef3d7ead88e51`
+vendored base: `22f100c6367045bb5fc86172f837047dee2f7670`
 
 local files:
 
-- `vendor/libghostty-vt/pkg/wuffs/build.zig`
 - `vendor/libghostty-vt/pkg/wuffs/src/main.zig`
 
-reason: Wuffs now needs MSVC libc headers when targeting Windows. Zig's
-`--libc` configuration reaches C compilation, but the translate-c dependency
-requires its own explicit configuration. Forward the same file so cross-builds
-can use an actual Windows SDK instead of changing the target ABI or skipping
-compilation. Native builds without a libc override are unchanged.
+fork note: the Windows `--libc` forwarding half of this patch was dropped with
+the Zig 0.17 rebase. Zig 0.17 build scripts can no longer read the global
+`--libc` file (`b.libc_file` is gone), so Windows cross-builds are unverified.
 
-The no-libc Wuffs module also exports hidden weak calloc/free stubs. On hosted
+reason: the no-libc Wuffs module also exports hidden weak calloc/free stubs. On hosted
 Linux with SIMD disabled, those definitions override the Rust executable's
 libc allocator, causing immediate allocation failures. Limit the stubs to
 freestanding targets; hosted embedders resolve these symbols through libc.
@@ -103,7 +100,7 @@ upstream discussion: not opened
 upstream pr: not opened; related merged PR https://github.com/ghostty-org/ghostty/pull/10132
 implements URL selection in the application layer, not the libghostty C API.
 
-vendored base: `44f2a44df7e8c4a0c6df3f7d872ef3d7ead88e51`
+vendored base: `22f100c6367045bb5fc86172f837047dee2f7670`
 
 local files:
 
@@ -145,7 +142,7 @@ upstream discussion: not opened
 
 upstream pr: not opened
 
-vendored base: `44f2a44df7e8c4a0c6df3f7d872ef3d7ead88e51`
+vendored base: `22f100c6367045bb5fc86172f837047dee2f7670`
 
 local files:
 
@@ -183,7 +180,7 @@ upstream discussion: not opened
 
 upstream pr: not opened
 
-vendored base: `44f2a44df7e8c4a0c6df3f7d872ef3d7ead88e51`
+vendored base: `22f100c6367045bb5fc86172f837047dee2f7670`
 
 local files:
 
@@ -194,6 +191,7 @@ local files:
 - `vendor/libghostty-vt/src/terminal/kitty/graphics_image.zig`
 - `vendor/libghostty-vt/src/terminal/kitty/graphics_exec.zig`
 - `vendor/libghostty-vt/src/terminal/kitty/graphics_storage.zig`
+- `vendor/libghostty-vt/src/terminal/snapshot/kitty.zig`
 
 reason: An explicitly enabled embedding mode retains structurally validated,
 quiet PNG uploads as encoded bytes, avoiding pixel decoding before forwarding
@@ -241,7 +239,7 @@ upstream discussion: not opened
 
 upstream pr: not opened
 
-vendored base: `44f2a44df7e8c4a0c6df3f7d872ef3d7ead88e51`
+vendored base: `22f100c6367045bb5fc86172f837047dee2f7670`
 
 local files:
 
