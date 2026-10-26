@@ -68,6 +68,13 @@ crate::cli::projection::cli_params! {
     }
 }
 
+/// Tells the foreground client that directional focus found no pane in `direction`,
+/// so the client can apply its own edge policy (wrap, or move focus to its own chrome).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ClientFocusEdgeParams {
+    pub direction: super::PaneDirection,
+}
+
 /// Updates whether the requesting client shell receives and controls pane presentation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ClientShellSurfaceSetParams {

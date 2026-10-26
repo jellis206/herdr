@@ -713,6 +713,10 @@ impl ClientShellState {
                 outcome.repaint = true;
                 None
             }
+            ClientShellMode::Navigate if self.sidebar_section.is_some() => {
+                self.route_sidebar_key(key, outcome);
+                None
+            }
             ClientShellMode::Navigate => {
                 self.route_navigate_key(key, outcome);
                 None

@@ -577,6 +577,39 @@ fn api_window_title_wins_until_it_is_cleared() {
 }
 
 #[test]
+fn focus_edge_reaches_the_foreground_client_as_endpoint_control() {
+    let (mut server, control_rx) = window_title_test_server();
+
+    server.handle_client_focus_edge_api("edge".into(), api::schema::PaneDirection::Left);
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut received = None;
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        let Ok(bytes) = control_rx.recv_timeout(remaining) else {
+            break;
+        };
+        if let ServerMessage::EndpointControl { kind, data } = read_server_message(bytes) {
+            if kind == crate::protocol::endpoint::FOCUS_EDGE_KIND {
+                received = Some(data);
+                break;
+            }
+        }
+    }
+    assert_eq!(received.as_deref(), Some("\"left\""));
+    assert!(matches!(
+        crate::client::endpoint::decode_endpoint_control(
+            crate::protocol::endpoint::FOCUS_EDGE_KIND,
+            "\"left\""
+        ),
+        Ok(crate::client::endpoint::EndpointControlMessage::FocusEdge(
+            api::schema::PaneDirection::Left
+        ))
+    ));
+
+    shutdown_test_runtimes(&mut server);
+}
+
+#[test]
 fn clearing_the_api_title_falls_back_to_herdr_when_window_titles_are_disabled() {
     let (mut server, control_rx) = window_title_test_server();
     server.app.configure_window_title("");

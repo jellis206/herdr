@@ -31,6 +31,8 @@ mod preferences;
 mod render;
 mod scroll;
 mod settings;
+mod sidebar_focus;
+use sidebar_focus::SidebarSection;
 mod state;
 mod surface_patch;
 mod text_editor;

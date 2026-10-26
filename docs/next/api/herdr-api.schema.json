@@ -1695,6 +1695,18 @@
           ],
           "type": "object"
         },
+        "ClientFocusEdgeParams": {
+          "description": "Tells the foreground client that directional focus found no pane in `direction`,\nso the client can apply its own edge policy (wrap, or move focus to its own chrome).",
+          "properties": {
+            "direction": {
+              "$ref": "#/schemas/request/$defs/PaneDirection"
+            }
+          },
+          "required": [
+            "direction"
+          ],
+          "type": "object"
+        },
         "ClientShellSurfaceSetParams": {
           "description": "Updates whether the requesting client shell receives and controls pane presentation.",
           "properties": {
@@ -6305,6 +6317,22 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/PluginPaneCloseParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "client.focus_edge",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/ClientFocusEdgeParams"
             }
           },
           "required": [

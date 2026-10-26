@@ -1061,6 +1061,10 @@ impl App {
                     },
                 );
             }
+            // Only a headless server with a foreground client can deliver the edge.
+            Method::ClientFocusEdge(_) => {
+                return responses::encode_success(request.id, ResponseResult::Ok {});
+            }
             Method::SessionSnapshot(_) => return self.handle_session_snapshot(request.id),
             Method::WorkspaceList(_) => return self.handle_workspace_list(request.id),
             Method::WorkspaceGet(target) => return self.handle_workspace_get(request.id, target),

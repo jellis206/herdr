@@ -153,6 +153,7 @@ impl ClientShellState {
                     self.mobile_switcher_scroll = 0;
                     self.reveal_mobile_workspace = false;
                     self.mode = ClientShellMode::Navigate;
+                    self.sidebar_section = None;
                     self.navigate_workspace_id = self.focused_navigation_target();
                     self.reveal_navigation_workspace = true;
                     outcome.repaint = true;

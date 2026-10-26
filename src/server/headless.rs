@@ -1555,6 +1555,30 @@ impl HeadlessServer {
         .unwrap_or_else(|_| "{}".to_string())
     }
 
+    /// Only the foreground client owns the keyboard, so only it reacts to the edge.
+    fn handle_client_focus_edge_api(
+        &mut self,
+        id: String,
+        direction: api::schema::PaneDirection,
+    ) -> String {
+        if let (Some(client_id), Ok(data)) =
+            (self.foreground_client_id, serde_json::to_string(&direction))
+        {
+            self.send_to_client(
+                client_id,
+                ServerMessage::EndpointControl {
+                    kind: crate::protocol::endpoint::FOCUS_EDGE_KIND.into(),
+                    data,
+                },
+            );
+        }
+        serde_json::to_string(&api::schema::SuccessResponse {
+            id,
+            result: api::schema::ResponseResult::Ok {},
+        })
+        .unwrap_or_else(|_| "{}".to_string())
+    }
+
     fn drain_client_config_reload_request(&mut self) {
         if !self.app.state.request_client_config_reload {
             return;
@@ -2973,6 +2997,12 @@ impl HeadlessServer {
                 let response = self.handle_client_window_title_api(msg.request.id.clone(), None);
                 let _ = msg.respond_to.send(response);
                 return true;
+            }
+            api::schema::Method::ClientFocusEdge(params) => {
+                let response =
+                    self.handle_client_focus_edge_api(msg.request.id.clone(), params.direction);
+                let _ = msg.respond_to.send(response);
+                return false;
             }
             _ => {}
         }

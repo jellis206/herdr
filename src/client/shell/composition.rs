@@ -36,10 +36,12 @@ impl ClientShellState {
             Rect::new(0, 1, cols, rows.saturating_sub(2))
         };
         let valid_navigation_target = self.mode == ClientShellMode::Navigate
+            && self.sidebar_section != Some(SidebarSection::Agents)
             && self
                 .navigate_workspace_id
                 .as_ref()
                 .is_some_and(|target| self.navigation_target_valid(target));
+        let selected_agent_pane_id = self.sidebar_selected_agent().map(str::to_owned);
         let pending_workspace_highlight =
             self.pending_workspace_highlight.as_ref().filter(|pending| {
                 self.mode != ClientShellMode::Navigate
@@ -75,6 +77,7 @@ impl ClientShellState {
                 .filter(|_| valid_navigation_target)
                 .or_else(|| pending_workspace_highlight.map(|pending| &pending.target)),
             reveal_navigation_workspace: &mut self.reveal_navigation_workspace,
+            selected_agent_pane_id: selected_agent_pane_id.as_deref(),
             dragged_workspace_id: None,
             workspace_drop_indicator_row: None,
         };
@@ -160,10 +163,12 @@ impl ClientShellState {
         }
         self.last_composed_size = Some((cols, rows));
         let valid_navigation_target = self.mode == ClientShellMode::Navigate
+            && self.sidebar_section != Some(SidebarSection::Agents)
             && self
                 .navigate_workspace_id
                 .as_ref()
                 .is_some_and(|target| self.navigation_target_valid(target));
+        let selected_agent_pane_id = self.sidebar_selected_agent().map(str::to_owned);
         let pending_workspace_highlight =
             self.pending_workspace_highlight.as_ref().filter(|pending| {
                 self.mode != ClientShellMode::Navigate
@@ -231,6 +236,7 @@ impl ClientShellState {
                     .filter(|_| valid_navigation_target)
                     .or_else(|| pending_workspace_highlight.map(|pending| &pending.target)),
                 reveal_navigation_workspace: &mut self.reveal_navigation_workspace,
+                selected_agent_pane_id: selected_agent_pane_id.as_deref(),
                 dragged_workspace_id,
                 workspace_drop_indicator_row,
             },

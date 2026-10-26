@@ -55,6 +55,7 @@ pub(super) fn render_agent_panel(
     snapshot: &ClientShellSnapshot,
     config: &ClientShellConfig,
     agent_scroll: &mut usize,
+    selected_pane_id: Option<&str>,
     hits: &mut ShellHitMap,
 ) {
     if !render_agent_panel_header(
@@ -83,6 +84,9 @@ pub(super) fn render_agent_panel(
         |buffer, rect, row, hits| {
             hits.agents.push((rect, row.pane_id.clone()));
             render_agent_row(buffer, rect, row, config);
+            if selected_pane_id == Some(row.pane_id.as_str()) {
+                buffer.set_style(rect, Style::default().bg(config.palette.selection_bg));
+            }
         },
     );
 }

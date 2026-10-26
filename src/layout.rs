@@ -371,14 +371,27 @@ pub fn find_in_direction(
     direction: NavDirection,
     panes: &[PaneInfo],
 ) -> Option<PaneId> {
-    let fr = focused.rect;
+    nearest_in_direction(
+        focused.rect,
+        direction,
+        panes
+            .iter()
+            .filter(|p| p.id != focused.id)
+            .map(|p| (p.id, p.rect)),
+    )
+}
 
-    panes
-        .iter()
+/// Nearest candidate rect in `direction` from `fr`, keyed by caller-owned ids.
+pub fn nearest_in_direction<T>(
+    fr: Rect,
+    direction: NavDirection,
+    candidates: impl IntoIterator<Item = (T, Rect)>,
+) -> Option<T> {
+    candidates
+        .into_iter()
         .enumerate()
-        .filter(|(_, p)| p.id != focused.id)
-        .filter(|(_, p)| {
-            let r = p.rect;
+        .filter(|(_, (_, r))| {
+            let r = *r;
             match direction {
                 NavDirection::Left => {
                     r.x + r.width <= fr.x && ranges_overlap(r.y, r.height, fr.y, fr.height)
@@ -394,8 +407,8 @@ pub fn find_in_direction(
                 }
             }
         })
-        .min_by_key(|(index, p)| {
-            let r = p.rect;
+        .min_by_key(|(index, (_, r))| {
+            let r = *r;
             let edge_distance = match direction {
                 NavDirection::Left => fr.x.saturating_sub(r.x + r.width),
                 NavDirection::Right => r.x.saturating_sub(fr.x + fr.width),
@@ -420,7 +433,7 @@ pub fn find_in_direction(
             };
             (edge_distance, Reverse(overlap), center_distance, *index)
         })
-        .map(|(_, p)| p.id)
+        .map(|(_, (id, _))| id)
 }
 
 fn ranges_overlap(a_start: u16, a_len: u16, b_start: u16, b_len: u16) -> bool {
@@ -456,7 +469,7 @@ fn nearest_resize_split(
         .min_by_key(|s| split_edge_distance(s, focused, nav))
 }
 
-fn opposite_direction(nav: NavDirection) -> NavDirection {
+pub fn opposite_direction(nav: NavDirection) -> NavDirection {
     match nav {
         NavDirection::Left => NavDirection::Right,
         NavDirection::Right => NavDirection::Left,

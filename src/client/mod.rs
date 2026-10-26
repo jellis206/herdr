@@ -2136,6 +2136,33 @@ async fn run_client_loop(
                                 }
                                 continue;
                             }
+                            Ok(endpoint::EndpointControlMessage::FocusEdge(direction)) => {
+                                if let Some(shell) = state.shell.as_mut() {
+                                    let outcome = shell.receive_focus_edge(&endpoint_id, direction);
+                                    let frame = outcome
+                                        .repaint
+                                        .then(|| {
+                                            shell.compose(
+                                                state.reported_size.0,
+                                                state.reported_size.1,
+                                            )
+                                        })
+                                        .flatten();
+                                    if finish_client_shell_input(
+                                        &mut state,
+                                        outcome,
+                                        frame,
+                                        &mut write_stream,
+                                        &mut pending_activation,
+                                        &mut endpoint_commands,
+                                        &mut prefix_input_source,
+                                        &mut scheduled_activation,
+                                    )? {
+                                        return Ok(());
+                                    }
+                                }
+                                continue;
+                            }
                             Ok(endpoint::EndpointControlMessage::Ignored) => {
                                 debug!(%kind, "ignoring unknown endpoint control message");
                                 continue;
