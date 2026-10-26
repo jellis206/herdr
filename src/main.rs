@@ -386,6 +386,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # enabled = true
 # Optional custom mp3 sound files. Relative paths are resolved from this config file's directory.
 # path = "sounds/notification.mp3"   # one mp3 file for all sound notifications
+# path = "sounds/notifications"      # or a directory: plays a random mp3 from it each time
 # done_path = "sounds/done.mp3"      # overrides only finished notifications
 # request_path = "sounds/request.mp3" # overrides only needs-attention notifications
 

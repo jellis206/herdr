@@ -46,7 +46,7 @@ pub fn play(sound: Sound, config: &crate::config::SoundConfig) {
     let custom_path = config.path_for(sound);
     std::thread::spawn(move || {
         if let Some(path) = custom_path {
-            match play_file(&path) {
+            match pick_sound_file(path.clone()).and_then(|file| play_file(&file)) {
                 Ok(()) => return,
                 Err(err) => {
                     warn!(path = %path.display(), sound = ?sound, err = %err, "custom sound playback failed, falling back to built-in sound")
@@ -67,6 +67,35 @@ pub fn play(sound: Sound, config: &crate::config::SoundConfig) {
 
 fn sound_playback_disabled_by_env() -> bool {
     std::env::var_os(DISABLE_SOUND_ENV).is_some() || std::env::var_os("NEXTEST").is_some()
+}
+
+/// A directory path plays a random mp3 from that directory on each notification.
+fn pick_sound_file(path: PathBuf) -> Result<PathBuf, String> {
+    if !path.is_dir() {
+        return Ok(path);
+    }
+    let mut files = mp3_files_in(&path).map_err(|e| e.to_string())?;
+    if files.is_empty() {
+        return Err("sound directory contains no mp3 files".to_string());
+    }
+    // ponytail: clock nanos as the random source; fine for picking a sound, not for anything that needs real randomness.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    Ok(files.swap_remove(nanos as usize % files.len()))
+}
+
+pub(crate) fn mp3_files_in(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+    Ok(std::fs::read_dir(dir)?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("mp3"))
+        })
+        .collect())
 }
 
 fn play_file(path: &Path) -> Result<(), String> {
@@ -365,6 +394,22 @@ fn player_error(player: AudioPlayer, output: &Output) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sound_directory_picks_an_mp3_and_rejects_empty() {
+        let dir = temp_sound_path().with_extension("dir");
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::write(dir.join("notes.txt"), b"").unwrap();
+        assert!(pick_sound_file(dir.clone()).is_err());
+
+        std::fs::write(dir.join("a.mp3"), b"").unwrap();
+        let picked = pick_sound_file(dir.clone());
+        let file = dir.join("one.mp3");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(picked, Ok(dir.join("a.mp3")));
+        assert_eq!(pick_sound_file(file.clone()), Ok(file));
+    }
 
     #[test]
     fn temp_sound_paths_are_unique() {

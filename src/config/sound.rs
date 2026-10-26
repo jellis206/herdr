@@ -10,7 +10,7 @@ use super::io::resolve_config_relative_path;
 #[serde(default)]
 pub struct SoundConfig {
     pub enabled: bool,
-    /// Optional mp3 file path used for all notification sounds.
+    /// Optional mp3 file (or directory of mp3s, picked at random) used for all notification sounds.
     /// Relative paths are resolved from the config file's directory.
     pub path: Option<PathBuf>,
     /// Optional mp3 file path for "done" notifications.
@@ -88,6 +88,17 @@ impl SoundConfig {
             };
 
             let resolved = resolve_config_relative_path(path);
+            if resolved.is_dir() {
+                if crate::sound::mp3_files_in(&resolved).map_or(true, |files| files.is_empty()) {
+                    diagnostics.push(format!(
+                        "empty sound directory: {field} = {} resolves to {}; expected mp3 files; using default sound",
+                        path.display(),
+                        resolved.display()
+                    ));
+                }
+                continue;
+            }
+
             if resolved
                 .extension()
                 .and_then(|ext| ext.to_str())
