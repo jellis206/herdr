@@ -905,6 +905,8 @@ pub(crate) struct ClientShellState {
     /// Set while Navigate mode was entered from a pane edge (sidebar focus).
     pub(super) sidebar_section: Option<SidebarSection>,
     pub(super) sidebar_agent_pane_id: Option<String>,
+    /// Pane focused before the first sidebar preview; Esc returns to it.
+    pub(super) sidebar_restore_pane_id: Option<String>,
     pub(super) pending_workspace_highlight: Option<PendingWorkspaceHighlight>,
     pub(super) reveal_navigation_workspace: bool,
     pub(super) overlay: Option<ClientShellOverlay>,
@@ -1081,6 +1083,7 @@ impl ClientShellState {
             navigate_workspace_id: None,
             sidebar_section: None,
             sidebar_agent_pane_id: None,
+            sidebar_restore_pane_id: None,
             pending_workspace_highlight: None,
             reveal_navigation_workspace: false,
             overlay,

@@ -1,7 +1,8 @@
 //! Keyboard focus inside the sidebar, entered when directional pane focus runs
-//! off a horizontal edge. Moves like a Neovim file tree: j/k move, h/l collapse
-//! and expand worktree groups, Tab switches spaces/agents, Enter opens, and
-//! ctrl+h/ctrl+l leave back into the panes.
+//! off a horizontal edge. Moves like a Neovim file tree: j/k move (previewing
+//! the space or agent under the cursor), h/l collapse and expand worktree
+//! groups, Tab switches spaces/agents, Enter keeps the preview, Esc undoes it,
+//! and ctrl+h/ctrl+l leave back into the panes.
 
 use super::*;
 use crate::api::schema::PaneDirection;
@@ -36,6 +37,7 @@ impl ClientShellState {
             self.navigate_workspace_id = self.focused_navigation_target();
             self.reveal_navigation_workspace = true;
             self.sidebar_section = Some(SidebarSection::Spaces);
+            self.sidebar_restore_pane_id = None;
             outcome.repaint = true;
         } else {
             self.focus_farthest_pane(crate::layout::opposite_direction(direction), &mut outcome);
@@ -104,7 +106,7 @@ impl ClientShellState {
     ) {
         outcome.repaint = true;
         if self.config.keybinds.matches_prefix(key) {
-            self.leave_sidebar(outcome);
+            self.cancel_sidebar(outcome);
             return;
         }
         let (code, modifiers) = crate::config::normalize_key_combo((key.code, key.modifiers));
@@ -114,23 +116,35 @@ impl ClientShellState {
         }
         let agents = self.sidebar_section == Some(SidebarSection::Agents);
         match code {
-            KeyCode::Esc => self.leave_sidebar(outcome),
-            KeyCode::Char('[') if ctrl => self.leave_sidebar(outcome),
+            KeyCode::Esc => self.cancel_sidebar(outcome),
+            KeyCode::Char('[') if ctrl => self.cancel_sidebar(outcome),
             // Like the pane edge that brought us here: ctrl+l goes back to the
-            // leftmost pane, ctrl+h wraps around to the rightmost one.
-            KeyCode::Char('l') if ctrl => {
+            // leftmost pane, ctrl+h wraps around to the rightmost one. A
+            // previewed agent keeps focus; so does a space whose preview has
+            // not landed yet, since its pane geometry is still unknown.
+            KeyCode::Char(side @ ('l' | 'h')) if ctrl => {
+                let settled = !agents && self.space_preview_settled();
                 self.leave_sidebar(outcome);
-                self.focus_farthest_pane(NavDirection::Left, outcome);
+                if settled {
+                    let toward = if side == 'l' {
+                        NavDirection::Left
+                    } else {
+                        NavDirection::Right
+                    };
+                    self.focus_farthest_pane(toward, outcome);
+                }
             }
-            KeyCode::Char('h') if ctrl => {
-                self.leave_sidebar(outcome);
-                self.focus_farthest_pane(NavDirection::Right, outcome);
+            KeyCode::Char('j') | KeyCode::Down if agents => self.move_sidebar_agent(1, outcome),
+            KeyCode::Char('k') | KeyCode::Up if agents => self.move_sidebar_agent(-1, outcome),
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.move_navigate_workspace(1);
+                self.preview_sidebar_selection(outcome);
             }
-            KeyCode::Char('j') | KeyCode::Down if agents => self.move_sidebar_agent(1),
-            KeyCode::Char('k') | KeyCode::Up if agents => self.move_sidebar_agent(-1),
-            KeyCode::Char('j') | KeyCode::Down => self.move_navigate_workspace(1),
-            KeyCode::Char('k') | KeyCode::Up => self.move_navigate_workspace(-1),
-            KeyCode::Tab | KeyCode::BackTab if !ctrl => self.toggle_sidebar_section(),
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.move_navigate_workspace(-1);
+                self.preview_sidebar_selection(outcome);
+            }
+            KeyCode::Tab | KeyCode::BackTab if !ctrl => self.toggle_sidebar_section(outcome),
             KeyCode::Char('h') | KeyCode::Left if !agents => self.collapse_sidebar_group(outcome),
             KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter if !ctrl => {
                 if agents {
@@ -147,7 +161,66 @@ impl ClientShellState {
         self.mode = self.copy_or_terminal_mode();
         self.navigate_workspace_id = None;
         self.sidebar_section = None;
+        self.sidebar_restore_pane_id = None;
         outcome.repaint = true;
+    }
+
+    /// Leave without keeping the preview: refocus the pane we started from.
+    fn cancel_sidebar(&mut self, outcome: &mut ClientShellInput) {
+        if let Some(pane_id) = self.sidebar_restore_pane_id.take() {
+            self.push_endpoint_method(
+                crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id }),
+                outcome,
+            );
+        }
+        self.leave_sidebar(outcome);
+    }
+
+    /// Focus what the cursor is on so the panes show it. The server renders only
+    /// the focused space, so the preview is a real focus change that Esc undoes.
+    fn preview_sidebar_selection(&mut self, outcome: &mut ClientShellInput) {
+        let Some(snapshot) = self.snapshot.as_deref() else {
+            return;
+        };
+        let (method, already_focused) = if self.sidebar_section == Some(SidebarSection::Agents) {
+            let Some(pane_id) = self.sidebar_agent_pane_id.clone() else {
+                return;
+            };
+            let focused = snapshot.focused_pane_id.as_ref() == Some(&pane_id);
+            let target = crate::api::schema::PaneTarget { pane_id };
+            (crate::api::schema::Method::PaneFocus(target), focused)
+        } else {
+            // Other machines would need an endpoint switch; they preview on Enter.
+            let Some(target) = self
+                .navigate_workspace_id
+                .as_ref()
+                .filter(|target| target.endpoint_id == self.active_endpoint_id)
+            else {
+                return;
+            };
+            let focused = snapshot.focused_workspace_id.as_ref() == Some(&target.workspace_id);
+            let target = crate::api::schema::WorkspaceTarget {
+                workspace_id: target.workspace_id.clone(),
+            };
+            (crate::api::schema::Method::WorkspaceFocus(target), focused)
+        };
+        // Once a preview is in flight the snapshot lags, so keep sending.
+        if self.sidebar_restore_pane_id.is_none() {
+            if already_focused {
+                return;
+            }
+            self.sidebar_restore_pane_id = snapshot.focused_pane_id.clone();
+        }
+        self.push_endpoint_method(method, outcome);
+    }
+
+    fn space_preview_settled(&self) -> bool {
+        self.navigate_workspace_id.as_ref().is_some_and(|target| {
+            target.endpoint_id == self.active_endpoint_id
+                && self.snapshot.as_deref().is_some_and(|snapshot| {
+                    snapshot.focused_workspace_id.as_ref() == Some(&target.workspace_id)
+                })
+        })
     }
 
     fn sidebar_agents(&self) -> Vec<String> {
@@ -159,9 +232,13 @@ impl ClientShellState {
             .unwrap_or_default()
     }
 
-    fn toggle_sidebar_section(&mut self) {
+    fn toggle_sidebar_section(&mut self, outcome: &mut ClientShellInput) {
         if self.sidebar_section == Some(SidebarSection::Agents) {
             self.sidebar_section = Some(SidebarSection::Spaces);
+            // The space cursor follows whatever the agent preview focused.
+            if let Some(target) = self.focused_navigation_target() {
+                self.navigate_workspace_id = Some(target);
+            }
             return;
         }
         let agents = self.sidebar_agents();
@@ -179,9 +256,10 @@ impl ClientShellState {
             .clone();
         self.sidebar_agent_pane_id = Some(start);
         self.sidebar_section = Some(SidebarSection::Agents);
+        self.preview_sidebar_selection(outcome);
     }
 
-    fn move_sidebar_agent(&mut self, delta: isize) {
+    fn move_sidebar_agent(&mut self, delta: isize, outcome: &mut ClientShellInput) {
         let agents = self.sidebar_agents();
         if agents.is_empty() {
             return;
@@ -193,6 +271,7 @@ impl ClientShellState {
             .unwrap_or(0);
         let next = (current as isize + delta).rem_euclid(agents.len() as isize) as usize;
         self.sidebar_agent_pane_id = Some(agents[next].clone());
+        self.preview_sidebar_selection(outcome);
     }
 
     fn open_sidebar_agent(&mut self, outcome: &mut ClientShellInput) {
@@ -256,6 +335,7 @@ impl ClientShellState {
             self.persist_chrome_preferences(outcome);
         }
         self.navigate_workspace_id = self.navigation_target(&endpoint_id, &parent_id);
+        self.preview_sidebar_selection(outcome);
     }
 
     /// nvim-tree `l` on a folded group: unfold it. Returns false when there is

@@ -228,3 +228,101 @@ fn workspace_picker_keeps_its_own_keys() {
     assert_eq!(state.mode, ClientShellMode::Navigate);
     assert_eq!(state.sidebar_section, None);
 }
+
+fn focused_workspaces(outcome: &ClientShellInput) -> Vec<String> {
+    outcome
+        .actions
+        .iter()
+        .filter_map(|action| match action {
+            ClientShellAction::Endpoint { request, .. } => match &request.method {
+                Method::WorkspaceFocus(target) => Some(target.workspace_id.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+fn two_space_state() -> ClientShellState {
+    let mut state = sidebar_state("pane_1");
+    let mut projected = state.snapshot.as_deref().unwrap().clone();
+    let mut second = projected.workspaces[0].clone();
+    second.workspace_id = "ws_2".into();
+    second.number = 2;
+    second.focused = false;
+    projected.workspaces.push(second);
+    state.set_snapshot(Box::new(projected));
+    state
+}
+
+#[test]
+fn moving_the_cursor_previews_and_esc_restores() {
+    let mut state = two_space_state();
+    edge(&mut state, PaneDirection::Left);
+    assert_eq!(
+        focused_workspaces(&state.handle_input_bytes(b"j")),
+        ["ws_2"]
+    );
+    // Back to the start while that preview is still in flight: still sent.
+    assert_eq!(
+        focused_workspaces(&state.handle_input_bytes(b"k")),
+        ["ws_1"]
+    );
+    assert_eq!(
+        focused_panes(&state.handle_input_bytes(b"\x1b")),
+        ["pane_1"]
+    );
+    assert_eq!(state.mode, ClientShellMode::Terminal);
+}
+
+#[test]
+fn esc_without_a_preview_changes_nothing() {
+    let mut state = two_space_state();
+    edge(&mut state, PaneDirection::Left);
+    assert!(state.handle_input_bytes(b"\x1b").actions.is_empty());
+}
+
+#[test]
+fn agents_preview_and_enter_keeps_it() {
+    let mut state = sidebar_state("pane_1");
+    edge(&mut state, PaneDirection::Left);
+    assert_eq!(focused_panes(&state.handle_input_bytes(b"\t")), ["pane_2"]);
+    assert_eq!(focused_panes(&state.handle_input_bytes(b"j")), ["pane_3"]);
+    state.handle_input_bytes(b"\r");
+    assert_eq!(state.mode, ClientShellMode::Terminal);
+    assert_eq!(state.sidebar_restore_pane_id, None);
+}
+
+#[test]
+fn ctrl_l_keeps_an_unsettled_space_preview() {
+    let mut state = two_space_state();
+    edge(&mut state, PaneDirection::Left);
+    state.handle_input_bytes(b"j");
+    // The ws_2 preview has not landed, so no pane from ws_1 may be focused.
+    assert!(focused_panes(&state.handle_input_bytes(CTRL_H)).is_empty());
+    assert_eq!(state.mode, ClientShellMode::Terminal);
+}
+
+#[test]
+fn a_landed_preview_keeps_the_sidebar_open() {
+    let mut state = two_space_state();
+    edge(&mut state, PaneDirection::Left);
+    state.handle_input_bytes(b"j");
+    let mut projected = state.snapshot.as_deref().unwrap().clone();
+    projected.revision += 1;
+    projected.focused_workspace_id = Some("ws_2".into());
+    for workspace in &mut projected.workspaces {
+        workspace.focused = workspace.workspace_id == "ws_2";
+    }
+    state.set_snapshot(Box::new(projected));
+    state.compose(106, 24);
+    assert_eq!(state.mode, ClientShellMode::Navigate);
+    assert_eq!(state.sidebar_section, Some(SidebarSection::Spaces));
+    assert_eq!(
+        state.navigate_workspace_id,
+        state.navigation_target(&ClientEndpointId::Local, "ws_2")
+    );
+    // Now settled: ctrl+l steps into ws_2's leftmost pane.
+    state.handle_input_bytes(CTRL_L);
+    assert_eq!(state.mode, ClientShellMode::Terminal);
+}
