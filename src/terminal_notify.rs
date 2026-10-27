@@ -31,15 +31,31 @@ pub fn detect_backend() -> Option<TerminalNotificationBackend> {
     }
 }
 
-pub fn show_notification(title: &str, body: Option<&str>) -> io::Result<bool> {
-    let Some(backend) = detect_backend() else {
+pub fn show_notification(
+    title: &str,
+    body: Option<&str>,
+    show_native_notification: impl FnOnce(&str, Option<&str>) -> io::Result<bool>,
+) -> io::Result<bool> {
+    show_notification_for_backend(detect_backend(), title, body, show_native_notification)
+}
+
+fn show_notification_for_backend(
+    backend: Option<TerminalNotificationBackend>,
+    title: &str,
+    body: Option<&str>,
+    show_native_notification: impl FnOnce(&str, Option<&str>) -> io::Result<bool>,
+) -> io::Result<bool> {
+    let Some(backend) = backend else {
         return Ok(false);
     };
 
     let sequence = match backend {
         TerminalNotificationBackend::Ghostty
         | TerminalNotificationBackend::Iterm2
-        | TerminalNotificationBackend::WezTerm => build_osc9_notification(title, body),
+        | TerminalNotificationBackend::WezTerm => {
+            // OSC 9 cannot request silence; keep all audio in Herdr's sound player.
+            return show_native_notification(title, body);
+        }
         TerminalNotificationBackend::Kitty => build_osc99_notification(title, body),
     };
 
@@ -62,22 +78,15 @@ pub fn split_message(message: &str) -> (&str, Option<&str>) {
     }
 }
 
-fn build_osc9_notification(title: &str, body: Option<&str>) -> Vec<u8> {
-    let message = sanitize_text(match body {
-        Some(body) if !body.is_empty() => format!("{title}: {body}"),
-        _ => title.to_string(),
-    });
-    format!("\x1b]9;{message}\x1b\\").into_bytes()
-}
-
 fn build_osc99_notification(title: &str, body: Option<&str>) -> Vec<u8> {
     let title = sanitize_text(title);
     match body {
         Some(body) if !body.is_empty() => {
             let body = sanitize_text(body);
-            format!("\x1b]99;i=1:d=0;{title}\x1b\\\x1b]99;i=1:p=body;{body}\x1b\\").into_bytes()
+            format!("\x1b]99;i=1:d=0:s=c2lsZW50;{title}\x1b\\\x1b]99;i=1:p=body;{body}\x1b\\")
+                .into_bytes()
         }
-        _ => format!("\x1b]99;;{title}\x1b\\").into_bytes(),
+        _ => format!("\x1b]99;s=c2lsZW50;{title}\x1b\\").into_bytes(),
     }
 }
 
@@ -131,8 +140,43 @@ mod tests {
     fn kitty_notification_uses_structured_title_and_body() {
         let sequence = String::from_utf8(build_osc99_notification("pi finished", Some("ws · 1")))
             .expect("utf8");
-        assert!(sequence.contains("]99;i=1:d=0;pi finished"));
+        assert!(sequence.contains("]99;i=1:d=0:s=c2lsZW50;pi finished"));
         assert!(sequence.contains("]99;i=1:p=body;ws · 1"));
+    }
+
+    #[test]
+    fn osc9_backends_use_native_notifications_instead_of_uncontrolled_audio() {
+        for backend in [
+            TerminalNotificationBackend::Ghostty,
+            TerminalNotificationBackend::Iterm2,
+            TerminalNotificationBackend::WezTerm,
+        ] {
+            let mut called = false;
+            let shown = show_notification_for_backend(
+                Some(backend),
+                "done",
+                Some("workspace"),
+                |title, body| {
+                    called = true;
+                    assert_eq!((title, body), ("done", Some("workspace")));
+                    Ok(true)
+                },
+            )
+            .unwrap();
+            assert!(shown && called);
+        }
+        assert!(!show_notification_for_backend(None, "done", None, |_, _| {
+            panic!("unsupported terminals must not emit popups")
+        })
+        .unwrap());
+    }
+
+    #[test]
+    fn kitty_title_only_notification_is_silent() {
+        assert_eq!(
+            build_osc99_notification("done", None),
+            b"\x1b]99;s=c2lsZW50;done\x1b\\"
+        );
     }
 
     #[test]

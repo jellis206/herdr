@@ -1004,7 +1004,11 @@ fn show_desktop_notification_with_command(
     }
 
     let mut cmd = command("notify-send");
-    cmd.arg("--app-name").arg("Herdr").arg("--").arg(title);
+    cmd.arg("--app-name")
+        .arg("Herdr")
+        .arg("--hint=boolean:suppress-sound:true")
+        .arg("--")
+        .arg(title);
     if let Some(body) = body.filter(|body| !body.is_empty()) {
         cmd.arg(body);
     }
@@ -2219,7 +2223,10 @@ mod tests {
         assert!(shown);
         let args = std::fs::read_to_string(&path).expect("args file");
         let _ = std::fs::remove_file(&path);
-        assert_eq!(args, "--app-name\nHerdr\n--\n-danger\nbody\n");
+        assert_eq!(
+            args,
+            "--app-name\nHerdr\n--hint=boolean:suppress-sound:true\n--\n-danger\nbody\n"
+        );
     }
 
     #[test]

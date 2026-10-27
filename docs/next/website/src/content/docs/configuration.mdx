@@ -492,15 +492,15 @@ delay_seconds = 1
 position = "bottom-right"
 ```
 
-Choose `herdr` for an in-app toast, `terminal` for an outer-terminal notification that also works over SSH, `system` for the local OS notification service, or `off` to disable popups. Herdr suppresses popups for the active tab. Search `ui.toast` in the [Config reference](/docs/config-reference/) for positions, delay behavior, and clipboard feedback settings.
+Choose `herdr` for an in-app toast, `terminal` for an outer-terminal notification, `system` for the local OS notification service, or `off` to disable popups. Kitty terminal notifications request silent delivery and work over SSH. Ghostty, iTerm2, and WezTerm use the local OS notification service instead because their OSC 9 notification protocol cannot request silence; these popups require a local desktop service. Herdr suppresses popups for the active tab. Search `ui.toast` in the [Config reference](/docs/config-reference/) for positions, delay behavior, and clipboard feedback settings.
 
-On macOS, `system` tries `terminal-notifier` first and falls back to `/usr/bin/osascript` when it is unavailable or fails. The fallback appears as Script Editor in Notification Center and cannot activate the hosting terminal. Install `terminal-notifier` with `brew install terminal-notifier`. For a supported, detected terminal, it can activate the terminal app when you click the notification. Alternatively, choose `terminal` to let a supported outer terminal own the notification.
+On macOS, `system` tries `terminal-notifier` first and falls back to `/usr/bin/osascript` when it is unavailable or fails. The fallback appears as Script Editor in Notification Center and cannot activate the hosting terminal. Install `terminal-notifier` with `brew install terminal-notifier`. For a supported, detected terminal, it can activate the terminal app when you click the notification. With Kitty, choose `terminal` to let the outer terminal own the silent notification.
 
 On Windows, `system` notifications remain in Notification Center. Clicking one selects its originating pane in the running Herdr client and brings its terminal window forward when Windows exposes that window. A click cannot reopen a closed client or select a pane from a restarted server. Windows Terminal can bring the owning window forward, but cannot reliably select a different outer terminal tab.
 
 ## Sound
 
-Sound notifications play through the local Herdr client. Custom sounds must be mp3 files; Herdr resolves relative paths from the config file's directory.
+Sound notifications and pane terminal bells play through the local Herdr client and respect the sound mute setting. A batch of terminal bells plays one needs-input sound instead of ringing the outer terminal. Custom sounds can be mp3 files or directories of mp3s; Herdr resolves relative paths from the config file's directory. A directory plays every mp3 in shuffled order before starting a new cycle, shared by all notifications using that directory in the same client. Directory contents are refreshed at the start of each cycle.
 
 ```toml
 [ui.sound]
@@ -509,7 +509,7 @@ done_path = "sounds/done.mp3"
 request_path = "sounds/request.mp3"
 ```
 
-`path` sets one sound for all sound notifications. `done_path` and `request_path` override only the finished and needs-input sounds.
+`path` sets the file or directory for all sound notifications. `done_path` and `request_path` override only the finished and needs-input sounds (including pane terminal bells), respectively. Set only `path` to use one shuffled directory for every sound.
 
 Per-agent sound overrides accept `default`, `on`, or `off`. Use detected agent labels such as `claude`, `codex`, `devin`, or `droid` as keys. Droid is muted by default.
 

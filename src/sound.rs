@@ -4,12 +4,15 @@
 //! Uses afplay (macOS), Windows MediaPlayer, or decoder-capable Linux audio
 //! players — no Rust audio dependencies.
 
+use std::collections::{hash_map::RandomState, HashMap};
+use std::hash::BuildHasher;
 use std::io::Write;
 #[cfg(not(any(windows, target_os = "macos")))]
 use std::io::{Read, Result as IoResult};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 #[cfg(not(any(windows, target_os = "macos")))]
 use std::time::{Duration, Instant};
 
@@ -69,20 +72,26 @@ fn sound_playback_disabled_by_env() -> bool {
     std::env::var_os(DISABLE_SOUND_ENV).is_some() || std::env::var_os("NEXTEST").is_some()
 }
 
-/// A directory path plays a random mp3 from that directory on each notification.
+/// Shuffle each directory into a bag so every mp3 plays before the next cycle.
 fn pick_sound_file(path: PathBuf) -> Result<PathBuf, String> {
     if !path.is_dir() {
         return Ok(path);
     }
-    let mut files = mp3_files_in(&path).map_err(|e| e.to_string())?;
+    static BAGS: OnceLock<Mutex<HashMap<PathBuf, Vec<PathBuf>>>> = OnceLock::new();
+    let mut bags = BAGS
+        .get_or_init(Mutex::default)
+        .lock()
+        .map_err(|err| err.to_string())?;
+    let files = bags.entry(path.clone()).or_default();
     if files.is_empty() {
-        return Err("sound directory contains no mp3 files".to_string());
+        *files = mp3_files_in(&path).map_err(|e| e.to_string())?;
+        // RandomState supplies randomly seeded hashing without a new audio/RNG dependency.
+        let random = RandomState::new();
+        files.sort_by_cached_key(|file| random.hash_one(file));
     }
-    // ponytail: clock nanos as the random source; fine for picking a sound, not for anything that needs real randomness.
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.subsec_nanos());
-    Ok(files.swap_remove(nanos as usize % files.len()))
+    files
+        .pop()
+        .ok_or_else(|| "sound directory contains no mp3 files".to_string())
 }
 
 pub(crate) fn mp3_files_in(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
@@ -409,6 +418,27 @@ mod tests {
 
         assert_eq!(picked, Ok(dir.join("a.mp3")));
         assert_eq!(pick_sound_file(file.clone()), Ok(file));
+    }
+
+    #[test]
+    fn sound_directory_uses_every_mp3_before_repeating() {
+        let dir = temp_sound_path().with_extension("dir");
+        std::fs::create_dir(&dir).unwrap();
+        let expected: std::collections::HashSet<_> = (0..54)
+            .map(|i| {
+                let path = dir.join(format!("{i}.mp3"));
+                std::fs::write(&path, b"").unwrap();
+                path
+            })
+            .collect();
+        std::fs::write(dir.join("ignore.wav"), b"").unwrap();
+        for _ in 0..2 {
+            let picked: std::collections::HashSet<_> = (0..54)
+                .map(|_| pick_sound_file(dir.clone()).unwrap())
+                .collect();
+            assert_eq!(picked, expected);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

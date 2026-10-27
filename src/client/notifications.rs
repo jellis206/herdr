@@ -49,6 +49,10 @@ fn show_untargeted_system_notification(title: &str, body: Option<&str>) -> io::R
     })
 }
 
+fn show_terminal_notification(title: &str, body: Option<&str>) -> io::Result<bool> {
+    crate::terminal_notify::show_notification(title, body, show_untargeted_system_notification)
+}
+
 pub(super) fn handle_shell_notification_effects(
     effects: Vec<shell::ClientShellNotificationEffect>,
     sound_config: &crate::config::SoundConfig,
@@ -63,8 +67,7 @@ pub(super) fn handle_shell_notification_effects(
                 }
             }
             shell::ClientShellNotificationEffect::Terminal { title, body } => {
-                if let Err(err) = crate::terminal_notify::show_notification(&title, body.as_deref())
-                {
+                if let Err(err) = show_terminal_notification(&title, body.as_deref()) {
                     warn!(err = %err, "failed to emit terminal notification");
                 }
             }
@@ -138,7 +141,7 @@ pub(super) fn handle_notify(
         message,
         body,
         sound_config,
-        crate::terminal_notify::show_notification,
+        show_terminal_notification,
         show_untargeted_system_notification,
     );
 }
