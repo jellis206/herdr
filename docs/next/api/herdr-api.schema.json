@@ -2792,6 +2792,28 @@
           ],
           "type": "object"
         },
+        "PaneNavigateParams": {
+          "description": "Directional focus that first offers the key to an editor in the pane (nvim, fzf)\nwhen `passthrough` is set, and tells the foreground client when no pane lies in\n`direction`.",
+          "properties": {
+            "direction": {
+              "$ref": "#/schemas/request/$defs/PaneDirection"
+            },
+            "pane_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "passthrough": {
+              "default": true,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "direction"
+          ],
+          "type": "object"
+        },
         "PaneNeighborParams": {
           "properties": {
             "direction": {
@@ -6333,6 +6355,22 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/ClientFocusEdgeParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "pane.navigate",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneNavigateParams"
             }
           },
           "required": [

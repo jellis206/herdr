@@ -185,6 +185,7 @@ mod tests {
             "pane.move",
             "pane.zoom",
             "pane.focus_direction",
+            "pane.navigate",
             "pane.resize",
             "pane.scroll",
             "pane.clear",

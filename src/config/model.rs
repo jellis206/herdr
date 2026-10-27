@@ -964,6 +964,9 @@ pub struct UiConfig {
     pub confirm_close: bool,
     /// Ask for a tab name before creating a new tab. Default: true.
     pub prompt_new_tab_name: bool,
+    /// Pane focus keys go to nvim/fzf first so nvim-herdr-navigator can move
+    /// between its windows and herdr panes. Default: false.
+    pub nvim_aware_focus: bool,
     /// Ask for a workspace name before interactive creation. Default: false.
     pub prompt_new_workspace_name: bool,
     /// Draw borders around split panes. auto draws them only for split panes,
@@ -1212,6 +1215,7 @@ impl Default for UiConfig {
             mouse_scroll_lines: None,
             confirm_close: true,
             prompt_new_tab_name: true,
+            nvim_aware_focus: false,
             prompt_new_workspace_name: false,
             pane_borders: PaneBordersConfig::Auto,
             pane_outer_borders: true,

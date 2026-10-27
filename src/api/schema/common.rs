@@ -75,6 +75,18 @@ pub struct ClientFocusEdgeParams {
     pub direction: super::PaneDirection,
 }
 
+/// Directional focus that first offers the key to an editor in the pane (nvim, fzf)
+/// when `passthrough` is set, and tells the foreground client when no pane lies in
+/// `direction`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneNavigateParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
+    pub direction: super::PaneDirection,
+    #[serde(default = "default_true")]
+    pub passthrough: bool,
+}
+
 /// Updates whether the requesting client shell receives and controls pane presentation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ClientShellSurfaceSetParams {

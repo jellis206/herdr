@@ -122,6 +122,9 @@ pub struct App {
     pub(crate) git_identity_refresh_requested: bool,
     /// A refresh worker failed to start; retry it even without a client.
     pub(crate) git_refresh_spawn_retry_pending: bool,
+    /// `pane.navigate` found no pane in this direction; the headless server
+    /// forwards it to the foreground client.
+    pub(crate) pending_focus_edge: Option<crate::api::schema::PaneDirection>,
     pub(crate) pending_restored_worktree_spaces:
         Vec<(String, crate::workspace::WorktreeSpaceMembership)>,
     pub(crate) restored_worktree_validation_retry_at: Option<Instant>,
@@ -635,6 +638,7 @@ impl App {
             git_refresh_due_after_in_flight: false,
             git_identity_refresh_requested: false,
             git_refresh_spawn_retry_pending: false,
+            pending_focus_edge: None,
             pending_restored_worktree_spaces: Vec::new(),
             restored_worktree_validation_retry_at: None,
             git_status_cache: HashMap::new(),

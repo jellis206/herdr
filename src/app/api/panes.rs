@@ -7,9 +7,9 @@ use crate::api::schema::{
     PaneFocusDirectionReason, PaneFocusDirectionResult, PaneInfo, PaneInputSetParams,
     PaneLayoutPane, PaneLayoutParams, PaneLayoutRect, PaneLayoutSnapshot, PaneLayoutSplit,
     PaneListParams, PaneMoveDestination, PaneMoveParams, PaneMoveReason, PaneMoveResult,
-    PaneNeighborParams, PaneNeighborResult, PaneProcessInfo, PaneProcessInfoParams,
-    PaneProcessInfoProcess, PaneReadParams, PaneReadResult, PaneReleaseAgentParams,
-    PaneRenameParams, PaneReportAgentParams, PaneReportAgentSessionParams,
+    PaneNavigateParams, PaneNeighborParams, PaneNeighborResult, PaneProcessInfo,
+    PaneProcessInfoParams, PaneProcessInfoProcess, PaneReadParams, PaneReadResult,
+    PaneReleaseAgentParams, PaneRenameParams, PaneReportAgentParams, PaneReportAgentSessionParams,
     PaneReportMetadataParams, PaneResizeParams, PaneResizeReason, PaneResizeResult,
     PaneScrollParams, PaneSelectionReadParams, PaneSendInputParams, PaneSendKeysParams,
     PaneSendTextParams, PaneSplitParams, PaneSwapParams, PaneSwapReason, PaneSwapResult,
@@ -656,6 +656,56 @@ impl App {
                     down: info.rect.y + info.rect.height >= area.y + area.height,
                     layout,
                 },
+            },
+        )
+    }
+
+    pub(super) fn handle_pane_navigate(
+        &mut self,
+        id: String,
+        params: PaneNavigateParams,
+    ) -> String {
+        let Some((ws_idx, pane_id)) = self.resolve_optional_pane(params.pane_id.as_deref()) else {
+            return encode_error(id, "pane_not_found", "pane not found");
+        };
+        if params.passthrough {
+            if let Some(runtime) = self.lookup_runtime_sender(ws_idx, pane_id) {
+                let editor_in_front = runtime
+                    .child_pid()
+                    .and_then(crate::detect::foreground_job)
+                    .is_some_and(|job| job.processes.iter().any(is_navigating_editor));
+                if editor_in_front {
+                    let key = match params.direction {
+                        PaneDirection::Left => "ctrl+h",
+                        PaneDirection::Down => "ctrl+j",
+                        PaneDirection::Up => "ctrl+k",
+                        PaneDirection::Right => "ctrl+l",
+                    };
+                    if let Ok(encoded) = encode_api_keys(runtime, &[key.to_string()]) {
+                        for bytes in encoded {
+                            if let Err(err) = runtime.try_send_bytes(Bytes::from(bytes)) {
+                                return encode_error(id, "pane_send_failed", err.to_string());
+                            }
+                        }
+                        return encode_success(id, ResponseResult::Ok {});
+                    }
+                }
+            }
+        }
+        let at_edge = self.state.workspaces[ws_idx]
+            .find_tab_index_for_pane(pane_id)
+            .is_some_and(|tab_idx| {
+                self.directional_pane_target(ws_idx, tab_idx, pane_id, params.direction)
+                    .is_none()
+            });
+        if at_edge {
+            self.pending_focus_edge = Some(params.direction);
+        }
+        self.handle_pane_focus_direction(
+            id,
+            PaneFocusDirectionParams {
+                pane_id: params.pane_id,
+                direction: params.direction,
             },
         )
     }
@@ -2055,6 +2105,18 @@ impl App {
 
         encode_success(id, ResponseResult::Ok {})
     }
+}
+
+/// Editors that handle ctrl+h/j/k/l themselves and call `pane.navigate` back at
+/// their own edge (nvim-herdr-navigator). Matches nix wrappers like `.nvim-wrapped`.
+fn is_navigating_editor(process: &crate::platform::ForegroundProcess) -> bool {
+    let is_editor = |name: &str| {
+        let base = name.rsplit('/').next().unwrap_or(name).to_ascii_lowercase();
+        let base = base.trim_start_matches('.');
+        let base = base.strip_suffix("-wrapped").unwrap_or(base);
+        matches!(base, "nvim" | "nvimdiff" | "fzf")
+    };
+    is_editor(&process.name) || process.argv0.as_deref().is_some_and(is_editor)
 }
 
 fn normalize_presentation_text(value: Option<String>) -> Option<String> {
@@ -4389,6 +4451,48 @@ mod tests {
         assert_eq!(focus.source_pane_id, root_public.clone());
         assert_eq!(focus.focused_pane_id, Some(root_public));
         assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(root));
+    }
+
+    #[test]
+    fn api_pane_navigate_at_an_edge_queues_the_focus_edge() {
+        let mut app = app_with_linked_worktree();
+        let root = app.state.workspaces[0].tabs[0].root_pane;
+        crate::ui::compute_view_with_runtime_registry(
+            &mut app.state,
+            &crate::terminal::TerminalRuntimeRegistry::new(),
+            ratatui::layout::Rect::new(0, 0, 100, 20),
+        );
+        let root_public = app.public_pane_id(0, root).unwrap();
+
+        app.handle_pane_navigate(
+            "req".into(),
+            PaneNavigateParams {
+                pane_id: Some(root_public),
+                direction: PaneDirection::Up,
+                passthrough: true,
+            },
+        );
+
+        assert_eq!(app.pending_focus_edge, Some(PaneDirection::Up));
+    }
+
+    #[test]
+    fn navigating_editors_include_nix_wrappers() {
+        let process = |name: &str, argv0: Option<&str>| crate::platform::ForegroundProcess {
+            pid: 1,
+            name: name.into(),
+            argv0: argv0.map(Into::into),
+            argv: None,
+            cmdline: None,
+        };
+        assert!(is_navigating_editor(&process("nvim", None)));
+        assert!(is_navigating_editor(&process(".nvim-wrapped", None)));
+        assert!(is_navigating_editor(&process(
+            "zsh",
+            Some("/nix/store/x/bin/fzf")
+        )));
+        assert!(!is_navigating_editor(&process("vim", None)));
+        assert!(!is_navigating_editor(&process("zsh", Some("-zsh"))));
     }
 
     #[test]

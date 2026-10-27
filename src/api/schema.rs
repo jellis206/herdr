@@ -146,6 +146,7 @@ operations::define_operations! {
     PluginPaneFocus(PluginPaneFocusParams) => "plugin.pane.focus", true, false;
     PluginPaneClose(PluginPaneCloseParams) => "plugin.pane.close", true, false;
     ClientFocusEdge(ClientFocusEdgeParams) => "client.focus_edge", false, false;
+    PaneNavigate(PaneNavigateParams) => "pane.navigate", true, true;
 }
 
 #[cfg(test)]
