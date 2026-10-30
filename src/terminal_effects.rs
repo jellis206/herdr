@@ -1,11 +1,15 @@
 use std::io::{self, Write};
 
-pub(crate) fn terminal_bell_sound(
-    count: u16,
-    config: &crate::config::SoundConfig,
-) -> Option<crate::sound::Sound> {
-    // Coalesce a PTY batch into one sound rather than starting a player per BEL byte.
-    (count > 0 && config.enabled).then_some(crate::sound::Sound::Request)
+const BELL_CHUNK: [u8; 64] = [b'\x07'; 64];
+
+pub(crate) fn write_terminal_bells<W: Write>(writer: &mut W, count: u16) -> io::Result<()> {
+    let full_chunks = usize::from(count) / BELL_CHUNK.len();
+    let remainder = usize::from(count) % BELL_CHUNK.len();
+    for _ in 0..full_chunks {
+        writer.write_all(&BELL_CHUNK)?;
+    }
+    writer.write_all(&BELL_CHUNK[..remainder])?;
+    writer.flush()
 }
 
 pub(crate) fn write_window_title<W: Write>(writer: &mut W, title: Option<&str>) -> io::Result<()> {
@@ -23,15 +27,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn terminal_bells_use_notification_sound_and_respect_mute() {
-        let mut config = crate::config::SoundConfig::default();
-        assert_eq!(
-            terminal_bell_sound(130, &config),
-            Some(crate::sound::Sound::Request)
-        );
-        assert_eq!(terminal_bell_sound(0, &config), None);
-        config.enabled = false;
-        assert_eq!(terminal_bell_sound(1, &config), None);
+    fn writes_exact_terminal_bell_count() {
+        let mut output = Vec::new();
+
+        write_terminal_bells(&mut output, 130).unwrap();
+
+        assert_eq!(output, vec![b'\x07'; 130]);
     }
 
     #[test]

@@ -1641,10 +1641,10 @@ async fn run_client_loop(
                         }
                     }
                     ServerMessage::TerminalBell { count } => {
-                        if let Some(sound) =
-                            crate::terminal_effects::terminal_bell_sound(count, &state.sound_config)
+                        if let Err(err) =
+                            crate::terminal_effects::write_terminal_bells(&mut io::stdout(), count)
                         {
-                            crate::sound::play(sound, &state.sound_config);
+                            warn!(err = %err, "failed to emit terminal bell");
                         }
                     }
                     ServerMessage::GraphicsFile {
