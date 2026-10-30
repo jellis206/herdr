@@ -239,3 +239,24 @@ fn last_tab_close_preserves_parent_group_and_linked_workspace_scope() {
         }
     }
 }
+
+#[test]
+fn tab_close_button_uses_the_same_close_flow() {
+    let mut state = close_state(false, 2);
+    let close = state
+        .hits
+        .tab_close
+        .iter()
+        .find(|(_, tab_id)| tab_id == "tab_1")
+        .map(|(rect, _)| *rect)
+        .expect("tab close button");
+    assert_tab_close(&click(&mut state, close));
+
+    let mut state = close_state(true, 1);
+    let close = state.hits.tab_close[0].0;
+    assert_no_close(&click(&mut state, close));
+    assert!(matches!(
+        state.overlay,
+        Some(ClientShellOverlay::ConfirmClose(_))
+    ));
+}

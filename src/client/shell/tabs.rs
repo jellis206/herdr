@@ -21,15 +21,20 @@ pub(crate) fn render_tab_bar(
         .iter()
         .filter(|tab| Some(tab.workspace_id.as_str()) == snapshot.focused_workspace_id.as_deref())
         .collect::<Vec<_>>();
+    let mouse_chrome = config.mouse_capture;
+    // Rounded caps plus one padding cell each side, an agent status icon, and
+    // a close × on the focused tab under mouse.
     let desired_widths = tabs
         .iter()
         .map(|tab| {
             let label = tab_label(tab);
-            display_width(&label).saturating_add(4).max(MIN_TAB_WIDTH)
+            display_width(&label)
+                .saturating_add(4 + tab_status_width(tab))
+                .saturating_add(u16::from(mouse_chrome && tab.focused))
+                .max(MIN_TAB_WIDTH)
         })
         .collect::<Vec<_>>();
     let content = tab_bar_content_area(snapshot, area);
-    let mouse_chrome = config.mouse_capture;
     let new_tab_width = if mouse_chrome { NEW_TAB_WIDTH } else { 0 };
     let desired_total = desired_widths
         .iter()
@@ -100,29 +105,57 @@ pub(crate) fn render_tab_bar(
             break;
         }
         let rect = Rect::new(x, area.y, width, 1);
+        // Only the focused tab is a raised surface; the rest sit flat on the bar.
         let style = if tab.focused {
-            let base = Style::default()
-                .fg(panel_contrast_fg(palette))
-                .bg(palette.accent);
-            if tab.custom_label {
-                base.add_modifier(Modifier::BOLD)
-            } else {
-                base
-            }
+            Style::default()
+                .fg(palette.text)
+                .bg(palette.active_row_bg)
+                .add_modifier(Modifier::BOLD)
         } else if tab.custom_label {
-            Style::default().fg(palette.overlay1).bg(palette.surface0)
+            Style::default().fg(palette.overlay1).bg(palette.panel_bg)
         } else {
-            Style::default().fg(palette.overlay0).bg(palette.surface0)
+            Style::default().fg(palette.overlay0).bg(palette.panel_bg)
         };
-        let padding = width.saturating_sub(display_width(&name));
+        let rounded = width >= 4;
+        let close = mouse_chrome && tab.focused && rounded && width == desired;
+        let status_width = tab_status_width(tab);
+        let caps = u16::from(rounded) * 2;
+        let label_width = width.saturating_sub(caps + u16::from(close));
+        let padding = label_width.saturating_sub(display_width(&name) + status_width);
         let left = padding / 2;
+        let status = if status_width > 0 {
+            format!(
+                "{} ",
+                status_icon(tab.agent_status, config.status_indicators)
+            )
+        } else {
+            String::new()
+        };
         let text = format!(
-            "{empty:left$}{name}{empty:right_padding$}",
+            "{cap_left}{empty:left$}{status}{name}{empty:right_padding$}{close}",
+            cap_left = if rounded { "\u{e0b6}" } else { "" },
             empty = "",
             left = left as usize,
             right_padding = padding.saturating_sub(left) as usize,
+            close = if close { "×" } else { "" },
         );
         put_text(buffer, rect.x, rect.y, rect.width, &text, style);
+        let status_x = rect.x + u16::from(rounded) + left;
+        if status_width > 0 && status_x < rect.right() {
+            buffer[(status_x, rect.y)].set_fg(status_color(tab.agent_status, palette));
+        }
+        if rounded {
+            // Caps draw in the tab colour over the bar so the ends read as curves.
+            let cap_style = Style::default()
+                .fg(style.bg.unwrap_or(palette.panel_bg))
+                .bg(palette.panel_bg);
+            buffer[(rect.x, rect.y)].set_style(cap_style);
+            put_text(buffer, rect.right() - 1, rect.y, 1, "\u{e0b4}", cap_style);
+        }
+        if close {
+            let close_rect = Rect::new(rect.right() - 2, rect.y, 2, 1);
+            hits.tab_close.push((close_rect, tab.tab_id.clone()));
+        }
         hits.tabs.push((rect, tab.tab_id.clone()));
         first_visible.get_or_insert(index);
         last_visible = Some(index);
@@ -369,6 +402,14 @@ fn max_tab_scroll(widths: &[u16], available: u16) -> usize {
         start -= 1;
     }
     start
+}
+
+fn tab_status_width(tab: &ClientShellTab) -> u16 {
+    if tab.agent_status == crate::api::schema::AgentStatus::Unknown {
+        0
+    } else {
+        2
+    }
 }
 
 fn tab_label(tab: &ClientShellTab) -> String {

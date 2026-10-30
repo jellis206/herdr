@@ -2113,6 +2113,17 @@ impl ClientShellState {
                     self.workspace_press = Some(workspace_press);
                     return;
                 }
+                let close_tab_id = self
+                    .hits
+                    .tab_close
+                    .iter()
+                    .find(|(rect, _)| super::contains(*rect, point))
+                    .map(|(_, tab_id)| tab_id.clone());
+                if let Some(tab_id) = close_tab_id {
+                    self.request_tab_close(tab_id, outcome);
+                    outcome.repaint = true;
+                    return;
+                }
                 let tab_press = self
                     .config
                     .mouse_capture

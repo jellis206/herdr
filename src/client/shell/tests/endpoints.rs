@@ -2431,6 +2431,16 @@ fn disconnected_active_endpoint_freezes_surface_and_marks_cached_ui_stale() {
     let stale_icon = buffer
         .content()
         .iter()
+        .enumerate()
+        .filter(|(index, _)| {
+            let point = buffer.pos_of(*index);
+            !state
+                .hits
+                .tabs
+                .iter()
+                .any(|(rect, _)| super::super::contains(*rect, point))
+        })
+        .map(|(_, cell)| cell)
         .find(|cell| cell.symbol() == "×")
         .expect("stale blocked icon");
     assert_eq!(stale_icon.fg, state.config.palette.overlay0);
