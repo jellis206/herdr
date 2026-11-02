@@ -942,7 +942,7 @@ fn machine_navigation_does_not_require_a_local_snapshot_or_surface() {
             .collect::<String>();
         assert!(!local_row.contains("reconnecting"));
         assert!(
-            !local_row.contains('◐'),
+            !local_row.contains('\u{f042}'),
             "Local never gets a connection badge"
         );
         let hit = state
@@ -2419,7 +2419,7 @@ fn disconnected_active_endpoint_freezes_surface_and_marks_cached_ui_stale() {
         state.endpoint_status(&endpoint_id),
         Some(ClientEndpointStatus::Reconnecting)
     );
-    assert!(text.contains("◐ reconnecting"), "frame: {text}");
+    assert!(text.contains("\u{f042} reconnecting"), "frame: {text}");
     assert!(text.contains("Build · remote agent"), "frame: {text}");
     assert!(
         text.contains("LIVE"),
