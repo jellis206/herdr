@@ -191,7 +191,7 @@ fn status_icon(
         (StatusIndicatorStyle::Dots, AgentStatus::Idle) => "○",
         (StatusIndicatorStyle::Dots, AgentStatus::Unknown) => "·",
         (StatusIndicatorStyle::Symbols, AgentStatus::Blocked) => "×",
-        (StatusIndicatorStyle::Symbols, AgentStatus::Working) => "◐",
+        (StatusIndicatorStyle::Symbols, AgentStatus::Working) => "\u{f042}", // Nerd Font half circle: in the main font, so it centres like ○ ✓ ×
         (StatusIndicatorStyle::Symbols, AgentStatus::Done) => "✓",
         (StatusIndicatorStyle::Symbols, AgentStatus::Idle) => "○",
         (StatusIndicatorStyle::Symbols, AgentStatus::Unknown) => "·",
