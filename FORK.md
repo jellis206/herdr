@@ -44,7 +44,15 @@ Herdr's local patches were rebased onto the new base and renumber their C enum
 values past upstream's (see `vendor/libghostty-vt.patches.md`). CI workflows and
 `AGENTS.md` still say 0.16 to keep upstream merges small.
 
-To refresh: re-run `scripts/vendor_libghostty_vt.py --source-repo <ghostty>`,
+`.tool-versions` pins the Zig this fork builds with; dotfiles' `devtools herdr`
+installs and uses it while the global Zig tracks the latest release.
+`scripts/refresh_libghostty_vt.sh` (run by dotfiles `.init.sh`) prepares a
+local `ghostty-refresh/zig-<version>` worktree branch whenever Ghostty `main`
+moves to a newer Zig that asdf offers: it re-vendors, reapplies the patches,
+regenerates bindings, bumps `.tool-versions` and runs `just test`. Review and
+merge that branch by hand. `--force` refreshes without a Zig change.
+
+Manual steps: re-run `scripts/vendor_libghostty_vt.py --source-repo <ghostty>`,
 reapply the patches, run `scripts/generate_libghostty_bindings.sh` (bindgen
 0.72.1), then `just test`. An upstream Herdr re-vendor will conflict in
 `vendor/`; resolve by re-vendoring rather than merging hunks.
