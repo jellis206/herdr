@@ -45,7 +45,7 @@ def require_clean_checkout(repo: Path) -> None:
 
 def ensure_dist_archive(source_repo: Path) -> Path:
     require_clean_checkout(source_repo)
-    head = git_head(source_repo)[:9]
+    head = git_head(source_repo)
     subprocess.run(
         ["zig", "build", "dist", "-Demit-lib-vt", "-Doptimize=ReleaseFast"],
         cwd=source_repo,
@@ -53,10 +53,16 @@ def ensure_dist_archive(source_repo: Path) -> Path:
     )
     require_clean_checkout(source_repo)
     dist_dir = source_repo / "zig-out" / "dist"
-    archives = sorted(dist_dir.glob(f"libghostty-vt-*+{head}.tar.gz"))
+    # The archive carries git's abbreviated hash, whose length varies by clone (7 in shallow ones).
+    archives = sorted(
+        archive
+        for archive in dist_dir.glob("libghostty-vt-*+*.tar.gz")
+        if len(abbrev := archive.name.removesuffix(".tar.gz").rsplit("+", 1)[1]) >= 7
+        and head.startswith(abbrev)
+    )
     if not archives:
         raise FileNotFoundError(
-            f"no libghostty-vt dist archive for HEAD {head} found in {dist_dir}"
+            f"no libghostty-vt dist archive for HEAD {head[:9]} found in {dist_dir}"
         )
     return archives[-1]
 
