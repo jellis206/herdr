@@ -65,7 +65,8 @@ git add -A vendor
 
 for patch in vendor/patches/libghostty-vt/*.patch; do
   step "applying ${patch##*/}"
-  git apply --3way "$patch" || fail "patch ${patch##*/} (see vendor/libghostty-vt.patches.md)"
+  # Plain apply: the patches carry no blob ids, so --3way only adds noise.
+  git apply "$patch" || fail "patch ${patch##*/} (see vendor/libghostty-vt.patches.md)"
 done
 
 step "checking build tools"
