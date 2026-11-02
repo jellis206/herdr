@@ -76,7 +76,7 @@ command -v just >/dev/null || cargo install --locked just || fail "install just"
 command -v cargo-nextest >/dev/null || cargo install --locked cargo-nextest || fail "install cargo-nextest"
 
 step "regenerating bindings"
-scripts/generate_libghostty_bindings.sh || fail "bindings"
+bash scripts/generate_libghostty_bindings.sh || fail "bindings"
 
 step "running tests"
 just test || fail "just test"
