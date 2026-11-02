@@ -4289,7 +4289,13 @@ fn letta_session_hook_is_silent_and_encodes_default_conversation() {
     permissions.set_mode(0o755);
     fs::set_permissions(&fake_herdr, permissions).unwrap();
 
-    let mut child = Command::new("sh")
+    let mut child = Command::new("sh");
+    // The fake HOME is only for installing; the hook's python3 may be a version-manager
+    // shim (asdf, mise) that resolves its version from the real HOME.
+    if let Some(home) = &previous_home {
+        child.env("HOME", home);
+    }
+    let mut child = child
         .arg(&installed.hook_path)
         .arg("session")
         .env("HERDR_ENV", "1")
