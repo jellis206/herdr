@@ -164,7 +164,10 @@ pub(super) fn render_settings_overlay(
                 content,
                 "agent status indicators",
                 "choose color dots or distinct symbols for each state",
-                &["color dots  ● ● ● ○ ·", "distinct symbols  × \u{f042} ✓ ○ ·"],
+                &[
+                    "color dots  ● ● ● ○ ·",
+                    "distinct symbols  × \u{f042} ✓ ○ ·",
+                ],
                 settings.selected,
                 palette,
                 &mut choice_hits,
