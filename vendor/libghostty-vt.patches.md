@@ -17,7 +17,7 @@ upstream discussion: not opened
 
 upstream pr: not opened
 
-vendored base: `22f100c6367045bb5fc86172f837047dee2f7670`
+vendored base: `0b1729e945978fca4bcd6165d8ac408bf675a7f2`
 
 local files:
 
@@ -60,7 +60,7 @@ upstream discussion: not opened
 
 upstream pr: not opened
 
-vendored base: `22f100c6367045bb5fc86172f837047dee2f7670`
+vendored base: `0b1729e945978fca4bcd6165d8ac408bf675a7f2`
 
 local files:
 
@@ -100,7 +100,7 @@ upstream discussion: not opened
 upstream pr: not opened; related merged PR https://github.com/ghostty-org/ghostty/pull/10132
 implements URL selection in the application layer, not the libghostty C API.
 
-vendored base: `22f100c6367045bb5fc86172f837047dee2f7670`
+vendored base: `0b1729e945978fca4bcd6165d8ac408bf675a7f2`
 
 local files:
 
@@ -142,7 +142,7 @@ upstream discussion: not opened
 
 upstream pr: not opened
 
-vendored base: `22f100c6367045bb5fc86172f837047dee2f7670`
+vendored base: `0b1729e945978fca4bcd6165d8ac408bf675a7f2`
 
 local files:
 
@@ -180,7 +180,7 @@ upstream discussion: not opened
 
 upstream pr: not opened
 
-vendored base: `22f100c6367045bb5fc86172f837047dee2f7670`
+vendored base: `0b1729e945978fca4bcd6165d8ac408bf675a7f2`
 
 local files:
 
@@ -239,7 +239,7 @@ upstream discussion: not opened
 
 upstream pr: not opened
 
-vendored base: `22f100c6367045bb5fc86172f837047dee2f7670`
+vendored base: `0b1729e945978fca4bcd6165d8ac408bf675a7f2`
 
 local files:
 
