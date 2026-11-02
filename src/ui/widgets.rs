@@ -103,7 +103,7 @@ pub(crate) fn continue_button_rect(area: Rect) -> Rect {
     Rect::new(
         area.x,
         area.y,
-        action_button_width(Some("↵"), "continue"),
+        action_button_width(Some("\u{f0311}"), "continue"),
         1,
     )
 }

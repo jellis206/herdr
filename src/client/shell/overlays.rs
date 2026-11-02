@@ -627,7 +627,7 @@ fn render_onboarding_overlay(
     button(
         b,
         primary,
-        " ↵ continue ",
+        " \u{f0311} continue ",
         Style::default()
             .fg(contrast(p))
             .bg(p.accent)
@@ -674,7 +674,7 @@ fn render_rename_overlay(
     button(
         b,
         *save,
-        " ↵ save ",
+        " \u{f0311} save ",
         Style::default()
             .fg(contrast(p))
             .bg(p.accent)
@@ -1286,7 +1286,7 @@ fn render_confirm_close_overlay(
     button(
         b,
         *ok,
-        " ↵ confirm ",
+        " \u{f0311} confirm ",
         Style::default()
             .fg(contrast(p))
             .bg(p.red)

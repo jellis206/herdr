@@ -76,7 +76,7 @@ pub(super) fn render_worktree_create_overlay(
     button(
         b,
         *primary,
-        " ↵ create and open ",
+        " \u{f0311} create and open ",
         Style::default()
             .fg(contrast(p))
             .bg(p.accent)
@@ -275,7 +275,7 @@ pub(super) fn render_worktree_open_overlay(
     button(
         b,
         *primary,
-        " ↵ open ",
+        " \u{f0311} open ",
         Style::default()
             .fg(contrast(p))
             .bg(p.accent)
@@ -384,9 +384,9 @@ pub(super) fn render_worktree_remove_overlay(
         b,
         *primary,
         if remove.force_confirmation {
-            " ↵ delete anyway "
+            " \u{f0311} delete anyway "
         } else {
-            " ↵ remove "
+            " \u{f0311} remove "
         },
         Style::default()
             .fg(contrast(p))

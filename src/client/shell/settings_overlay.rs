@@ -212,9 +212,9 @@ pub(super) fn render_settings_overlay(
             buffer,
             primary,
             if settings.section == ClientSettingsSection::Integrations {
-                " ↵ install "
+                " \u{f0311} install "
             } else {
-                " ↵ apply "
+                " \u{f0311} apply "
             },
             Style::default()
                 .fg(contrast(palette))
@@ -350,7 +350,7 @@ fn render_integrations(
         let (marker, color, status) = match integration.state {
             crate::api::schema::IntegrationState::Current => ("✓", palette.green, "installed"),
             crate::api::schema::IntegrationState::Outdated => {
-                ("↻", palette.yellow, "update available")
+                ("\u{f01e}", palette.yellow, "update available")
             }
             crate::api::schema::IntegrationState::NotInstalled if integration.available => {
                 ("+", palette.accent, "available")
