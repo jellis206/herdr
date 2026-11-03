@@ -121,6 +121,7 @@ operations::define_operations! {
     PaneSendKeys(PaneSendKeysParams) => "pane.send_keys", false, false;
     PaneSendInput(PaneSendInputParams) => "pane.send_input", false, false;
     PaneRead(PaneReadParams) => "pane.read", false, false;
+    PaneSnapshot(PaneSnapshotParams) => "pane.snapshot", false, false;
     PaneReportAgent(PaneReportAgentParams) => "pane.report_agent", true, false;
     PaneReportAgentSession(PaneReportAgentSessionParams) => "pane.report_agent_session", true, false;
     PaneReportMetadata(PaneReportMetadataParams) => "pane.report_metadata", true, false;

@@ -387,6 +387,8 @@ pub(super) enum Output {
     Json,
     Quiet,
     Read,
+    /// JSON, or a PNG written by the CLI when `--out` is given.
+    Snapshot,
 }
 
 pub(super) struct Leaf {
@@ -407,6 +409,7 @@ impl Leaf {
             "send-text" => command.after_help("next: herdr pane run <PANE_ID> <COMMAND> sends text and Enter in one call"),
             "send-keys" => command.after_help("Use esc as the canonical Escape key name; escape is also accepted."),
             "wait-output" => command.after_help("The selected snapshot is searched immediately, including existing output, then polled. Without --timeout, this waits indefinitely."),
+            "snapshot" => command.after_help("Composites the pane's visible Kitty graphics into a PNG on a transparent canvas of the visible cells. Text is not drawn into the PNG; the JSON text field carries the visible text, ANSI stripped, as herdr pane read --source visible returns it. Requires an attached client with Kitty graphics so the cell pixel size is known."),
             _ => command,
         }
     }
@@ -587,6 +590,14 @@ pub(super) const LEAVES: &[Leaf] = &[
             Ok(Method::PaneRead(params))
         },
     },
+    leaf!(
+        "snapshot",
+        "Export pane Kitty graphics as a PNG",
+        "cli:pane:snapshot",
+        Snapshot,
+        PaneSnapshotProjection,
+        PaneSnapshot
+    ),
     leaf!(
         "rename",
         "Rename a pane",

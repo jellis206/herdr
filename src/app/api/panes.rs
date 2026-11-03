@@ -1,3 +1,4 @@
+use base64::Engine as _;
 use bytes::Bytes;
 
 use crate::api::schema::{
@@ -12,9 +13,9 @@ use crate::api::schema::{
     PaneReleaseAgentParams, PaneRenameParams, PaneReportAgentParams, PaneReportAgentSessionParams,
     PaneReportMetadataParams, PaneResizeParams, PaneResizeReason, PaneResizeResult,
     PaneScrollParams, PaneSelectionReadParams, PaneSendInputParams, PaneSendKeysParams,
-    PaneSendTextParams, PaneSplitParams, PaneSwapParams, PaneSwapReason, PaneSwapResult,
-    PaneTarget, PaneTextPoint, PaneTextRange, PaneZoomMode, PaneZoomParams, PaneZoomReason,
-    PaneZoomResult, ResponseResult,
+    PaneSendTextParams, PaneSnapshotParams, PaneSplitParams, PaneSwapParams, PaneSwapReason,
+    PaneSwapResult, PaneTarget, PaneTextPoint, PaneTextRange, PaneZoomMode, PaneZoomParams,
+    PaneZoomReason, PaneZoomResult, ResponseResult,
 };
 use crate::app::actions::{PaneZoomCommand, PaneZoomNoopReason};
 use crate::app::App;
@@ -1601,6 +1602,61 @@ impl App {
         )
     }
 
+    pub(super) fn handle_pane_snapshot(
+        &mut self,
+        id: String,
+        params: PaneSnapshotParams,
+    ) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let Some((runtime, _)) = self.lookup_runtime(ws_idx, pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let cell = self.state.host_cell_size;
+        if !cell.is_known() {
+            return encode_error(
+                id,
+                "cell_size_unavailable",
+                "host cell size is unavailable; attach a client with Kitty graphics enabled",
+            );
+        }
+        let Some((cols, rows)) = runtime.terminal_dimensions() else {
+            return encode_error(id, "pane_size_unavailable", "pane size is unavailable");
+        };
+        let text = crate::app::api_helpers::read_terminal_snapshot(
+            runtime,
+            crate::api::schema::ReadSource::Visible,
+            crate::api::schema::ReadFormat::Text,
+            None,
+        )
+        .text;
+        let placements = runtime.kitty_image_placements_with_data_filter(|_| true);
+        let snapshot = crate::kitty_graphics::snapshot::composite(placements, cols, rows, cell);
+        let png = match crate::kitty_graphics::snapshot::encode_png(&snapshot) {
+            Ok(png) => png,
+            Err(err) => return encode_error(id, "snapshot_encode_failed", err.to_string()),
+        };
+        encode_success(
+            id,
+            ResponseResult::PaneSnapshot {
+                pane_id: public_pane_id,
+                width_px: snapshot.width_px,
+                height_px: snapshot.height_px,
+                cell_width_px: cell.width_px,
+                cell_height_px: cell.height_px,
+                cols,
+                rows,
+                placements: snapshot.placements,
+                png_base64: base64::engine::general_purpose::STANDARD.encode(png),
+                text,
+            },
+        )
+    }
+
     pub(super) fn handle_pane_report_agent(
         &mut self,
         id: String,
@@ -2876,6 +2932,48 @@ mod tests {
         };
         assert!(read.text.contains("line 19"));
         assert!(read.truncated);
+    }
+
+    #[tokio::test]
+    async fn api_pane_snapshot_requires_a_known_cell_size() {
+        let (mut app, public_pane_id, _pane_id) = app_with_scrollback_runtime();
+        let snapshot = |app: &mut App| {
+            app.handle_pane_snapshot(
+                "req".into(),
+                PaneSnapshotParams {
+                    pane_id: public_pane_id.clone(),
+                    out: None,
+                },
+            )
+        };
+
+        assert_eq!(
+            metadata_error_code(&snapshot(&mut app)),
+            "cell_size_unavailable"
+        );
+
+        app.state.host_cell_size = crate::kitty_graphics::HostCellSize {
+            width_px: 4,
+            height_px: 8,
+        };
+        let success: SuccessResponse = serde_json::from_str(&snapshot(&mut app)).unwrap();
+        let ResponseResult::PaneSnapshot {
+            width_px,
+            height_px,
+            cols,
+            rows,
+            placements,
+            png_base64,
+            text,
+            ..
+        } = success.result
+        else {
+            panic!("expected pane snapshot response");
+        };
+        assert!(text.contains("line 19"), "{text}");
+        assert_eq!((cols, rows, width_px, height_px), (20, 5, 80, 40));
+        assert_eq!(placements, 0);
+        assert!(!png_base64.is_empty());
     }
 
     #[tokio::test]

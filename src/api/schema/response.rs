@@ -162,6 +162,21 @@ pub enum ResponseResult {
     PaneRead {
         read: PaneReadResult,
     },
+    /// The pane's visible Kitty images composited into one PNG; text is not rendered.
+    PaneSnapshot {
+        pane_id: String,
+        width_px: u32,
+        height_px: u32,
+        cell_width_px: u32,
+        cell_height_px: u32,
+        cols: u16,
+        rows: u16,
+        /// Placements composited into the image.
+        placements: u32,
+        png_base64: String,
+        /// Visible viewport text, ANSI stripped, as `pane.read` with `source: visible`.
+        text: String,
+    },
     PaneSelection {
         pane_id: String,
         text: String,

@@ -14,6 +14,7 @@ use crate::layout::PaneId;
 use crate::terminal::TerminalRuntimeRegistry;
 
 pub(crate) mod output;
+pub(crate) mod snapshot;
 pub(crate) mod surface;
 
 pub(crate) use output::{GraphicsOperation, GraphicsOutput};

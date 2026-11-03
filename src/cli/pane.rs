@@ -1,5 +1,6 @@
 pub(crate) mod bindings;
 
+use base64::Engine as _;
 use clap::ArgMatches;
 
 use super::projection::ParseError;
@@ -39,10 +40,20 @@ pub(super) fn run_pane_command(args: &[String]) -> std::io::Result<i32> {
     if matches!(leaf.output, bindings::Output::Quiet) {
         return super::send_ok_request(request.method);
     }
-    let response = super::send_request(&request)?;
+    let out = match &request.method {
+        Method::PaneSnapshot(params) => params.out.clone(),
+        _ => None,
+    };
+    let mut response = super::send_request(&request)?;
     match leaf.output {
         bindings::Output::Json => super::print_response(&response),
         bindings::Output::Read => super::print_read_response(&response),
+        bindings::Output::Snapshot => {
+            if let Some(path) = out {
+                write_snapshot_png(&mut response, &path)?;
+            }
+            super::print_response(&response)
+        }
         bindings::Output::Quiet => {
             if response.get("error").is_some() {
                 super::print_response(&response)
@@ -51,6 +62,25 @@ pub(super) fn run_pane_command(args: &[String]) -> std::io::Result<i32> {
             }
         }
     }
+}
+
+/// Writes a successful snapshot's PNG to `path` and swaps the base64 for the path.
+fn write_snapshot_png(response: &mut serde_json::Value, path: &str) -> std::io::Result<()> {
+    let Some(result) = response
+        .get_mut("result")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return Ok(());
+    };
+    let Some(serde_json::Value::String(encoded)) = result.remove("png_base64") else {
+        return Ok(());
+    };
+    let png = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(std::io::Error::other)?;
+    std::fs::write(path, png)?;
+    result.insert("out".into(), path.into());
+    Ok(())
 }
 
 fn last_index(matches: &ArgMatches, names: &[&str]) -> Option<usize> {
@@ -313,6 +343,13 @@ mod tests {
                 json!({"pane_id": "pane", "source": "recent", "format": "text", "strip_ansi": true}),
             ),
             (
+                "snapshot",
+                vec!["pane", "--out", "shot.png"],
+                "cli:pane:snapshot",
+                "pane.snapshot",
+                json!({"pane_id": "pane"}),
+            ),
+            (
                 "rename",
                 vec!["pane", "--clear"],
                 "cli:pane:rename",
@@ -421,6 +458,30 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn pane_snapshot_out_stays_local_and_replaces_base64() {
+        let Method::PaneSnapshot(params) = request("snapshot", &["pane", "--out", "shot.png"])
+            .unwrap()
+            .method
+        else {
+            panic!()
+        };
+        assert_eq!(params.out.as_deref(), Some("shot.png"));
+
+        let path = std::env::temp_dir().join(format!("herdr-snapshot-{}.png", std::process::id()));
+        let path = path.to_str().unwrap();
+        let mut response = serde_json::json!({
+            "id": "cli:pane:snapshot",
+            "result": {"type": "pane_snapshot", "pane_id": "pane", "png_base64": "iVBORw=="},
+        });
+        write_snapshot_png(&mut response, path).unwrap();
+        let written = std::fs::read(path).unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(written, b"\x89PNG");
+        assert_eq!(response["result"]["out"], path);
+        assert!(response["result"].get("png_base64").is_none());
     }
 
     #[test]

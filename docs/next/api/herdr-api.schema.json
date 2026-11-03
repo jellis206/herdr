@@ -3246,6 +3246,17 @@
           ],
           "type": "object"
         },
+        "PaneSnapshotParams": {
+          "properties": {
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id"
+          ],
+          "type": "object"
+        },
         "PaneSplitParams": {
           "properties": {
             "cwd": {
@@ -5955,6 +5966,22 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/PaneReadParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "pane.snapshot",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneSnapshotParams"
             }
           },
           "required": [
@@ -9861,6 +9888,77 @@
               "required": [
                 "type",
                 "read"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "The pane's visible Kitty images composited into one PNG; text is not rendered.",
+              "properties": {
+                "cell_height_px": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "cell_width_px": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "cols": {
+                  "format": "uint16",
+                  "maximum": 65535,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "height_px": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "pane_id": {
+                  "type": "string"
+                },
+                "placements": {
+                  "description": "Placements composited into the image.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "png_base64": {
+                  "type": "string"
+                },
+                "rows": {
+                  "format": "uint16",
+                  "maximum": 65535,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "text": {
+                  "description": "Visible viewport text, ANSI stripped, as `pane.read` with `source: visible`.",
+                  "type": "string"
+                },
+                "type": {
+                  "const": "pane_snapshot",
+                  "type": "string"
+                },
+                "width_px": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "type",
+                "pane_id",
+                "width_px",
+                "height_px",
+                "cell_width_px",
+                "cell_height_px",
+                "cols",
+                "rows",
+                "placements",
+                "png_base64",
+                "text"
               ],
               "type": "object"
             },

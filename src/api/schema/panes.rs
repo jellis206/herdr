@@ -402,6 +402,17 @@ crate::cli::projection::cli_params! {
 
 crate::cli::projection::cli_params! {
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+    pub struct PaneSnapshotParams => PaneSnapshotProjection {
+        pub pane_id: String => Field::new(String::new()).input(binding::pane_id()),
+        /// CLI-only: the CLI process writes the PNG here; never sent to the server.
+        #[serde(skip)]
+        #[schemars(skip)]
+        pub(crate) out: Option<String> => Field::new(None).input(binding::optional_text("out", "PATH").path().help("Write the PNG to PATH instead of printing base64 JSON")),
+    }
+}
+
+crate::cli::projection::cli_params! {
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
     pub struct PaneReportAgentParams => PaneReportAgentProjection {
         pub pane_id: String => Field::new(String::new()).input(binding::pane_id()),
         pub source: String => Field::new(String::new()).input(binding::source()),
