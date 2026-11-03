@@ -237,6 +237,14 @@ herdr pane read <pane_id> --source recent-unwrapped --lines 120
 
 `pane read` は UTF-8 のターミナルテキストを直接出力します。デフォルトでは ANSI エスケープを除去し、ソースに装飾が含まれる場合は `--format ansi` または `--ansi` で保持します。`detection` ソースは常にプレーンテキストです。recent 系ソースでは、`--lines N` は折り返し解除の前に末尾の N 描画行を選び、省略時は 80 行です。`visible` と `detection` では、省略時にスナップショット全体を返し、指定時は改行で区切られた末尾 N 行を返します。`agent read` も同じ出力と行数の動作です。
 
+Kitty グラフィックスのスナップショット:
+
+```bash
+herdr pane snapshot <pane_id> [--out PATH]
+```
+
+`pane snapshot` は、ペインに表示中の Kitty グラフィックスを、表示中のセルの大きさの透明背景 PNG に合成します。テキストは PNG に描画せず、JSON の `text` フィールドが `pane read --source visible` と同じ ANSI 除去済みの表示テキストを返します。`--out` を指定すると CLI が PNG を PATH に書き込み、`png_base64` の代わりに `out` を含む JSON 結果を出力します。Kitty グラフィックス対応のクライアントが接続してセルピクセルサイズを報告するまでは `cell_size_unavailable` で失敗します。
+
 入力を送る:
 
 ```bash

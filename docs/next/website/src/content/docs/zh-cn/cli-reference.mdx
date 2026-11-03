@@ -237,6 +237,14 @@ herdr pane read <pane_id> --source recent-unwrapped --lines 120
 
 `pane read` 直接打印 UTF-8 终端文本。默认去除 ANSI 转义;来源包含样式时,使用 `--format ansi` 或 `--ansi` 保留。`detection` 来源始终是纯文本。对 recent 类来源,`--lines N` 会在可选的取消折行之前选择最后 N 个已渲染终端行;省略时默认读取 80 行。对 `visible` 和 `detection`,省略 `--lines` 会返回完整快照,指定时保留按换行分隔的最后 N 行。`agent read` 使用相同的输出和行数行为。
 
+Kitty 图形快照:
+
+```bash
+herdr pane snapshot <pane_id> [--out PATH]
+```
+
+`pane snapshot` 把窗格中可见的 Kitty 图形合成为一张与可见单元格同尺寸、背景透明的 PNG。文本不会绘制到 PNG 中;JSON 的 `text` 字段返回可见文本(去除 ANSI),与 `pane read --source visible` 的输出一致。使用 `--out` 时,CLI 把 PNG 写入 PATH,并输出以 `out` 代替 `png_base64` 的 JSON 结果。在支持 Kitty 图形的客户端连接并报告单元格像素尺寸之前,命令返回 `cell_size_unavailable` 错误。
+
 发送输入:
 
 ```bash

@@ -252,6 +252,14 @@ herdr pane read <pane_id> --source recent-unwrapped --lines 120
 
 `pane read` prints UTF-8 terminal text directly. ANSI escapes are stripped by default; use `--format ansi` or `--ansi` to preserve them where the source exposes styling. The `detection` source is always plain text. For recent sources, `--lines N` selects the last N rendered terminal rows before optional unwrapping; without it, reads default to 80 rows. For `visible` and `detection`, omitting `--lines` returns the full snapshot, while specifying it keeps the last N newline-delimited lines. `agent read` uses the same output and line behavior.
 
+Snapshot Kitty graphics:
+
+```bash
+herdr pane snapshot <pane_id> [--out PATH]
+```
+
+`pane snapshot` composites the pane's visible Kitty graphics into a PNG sized to the visible cells, on a transparent background. Text is not drawn into the PNG; the JSON `text` field carries the visible text, ANSI stripped, as `pane read --source visible` prints it. With `--out`, the CLI writes the PNG to PATH and prints the JSON result with `out` in place of `png_base64`. It fails with `cell_size_unavailable` until an attached client with Kitty graphics reports its cell pixel size.
+
 Send input:
 
 ```bash

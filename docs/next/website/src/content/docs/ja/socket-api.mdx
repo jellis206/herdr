@@ -99,7 +99,7 @@ herdr pane read w1:p2 --source recent --lines 50
 | ワークスペース | `workspace.create`、`workspace.list`、`workspace.get`、`workspace.focus`、`workspace.rename`、`workspace.move`、`workspace.move_block`、`workspace.report_metadata`、`workspace.close` |
 | Worktree | `worktree.list`、`worktree.create`、`worktree.open`、`worktree.remove` |
 | タブ | `tab.create`、`tab.list`、`tab.get`、`tab.focus`、`tab.rename`、`tab.move`、`tab.close` |
-| ペイン | `pane.split`、`pane.swap`、`pane.move`、`pane.zoom`、`pane.layout`、`pane.process_info`、`pane.neighbor`、`pane.edges`、`pane.focus_direction`、`pane.resize`、`pane.list`、`pane.current`、`pane.get`、`pane.rename`、`pane.send_text`、`pane.send_keys`、`pane.send_input`、`pane.read`、`pane.report_agent`、`pane.report_agent_session`、`pane.report_metadata`、`pane.clear_agent_authority`、`pane.release_agent`、`pane.close`、`pane.wait_for_output` |
+| ペイン | `pane.split`、`pane.swap`、`pane.move`、`pane.zoom`、`pane.layout`、`pane.process_info`、`pane.neighbor`、`pane.edges`、`pane.focus_direction`、`pane.resize`、`pane.list`、`pane.current`、`pane.get`、`pane.rename`、`pane.send_text`、`pane.send_keys`、`pane.send_input`、`pane.read`、`pane.snapshot`、`pane.report_agent`、`pane.report_agent_session`、`pane.report_metadata`、`pane.clear_agent_authority`、`pane.release_agent`、`pane.close`、`pane.wait_for_output` |
 | ポップアップ | `popup.close` |
 | レイアウト | `layout.export`、`layout.apply`、`layout.set_split_ratio` |
 | エージェント | `agent.list`、`agent.get`、`agent.read`、`agent.explain`、`agent.send_keys`、`agent.prompt`、`agent.wait`、`agent.rename`、`agent.focus`、`agent.start` |
@@ -678,6 +678,12 @@ herdr pane read w1:p1 --source detection
 
 `recent-unwrapped` はソフト折り返しを無視するのでログに便利です。
 `detection` は、エージェントのスクリーン検出が使う下部バッファのスナップショットを返します。
+
+`pane.snapshot`(パラメータ `{ "pane_id": "w1:p1" }`)は、ペインに表示中の Kitty グラフィックス配置を 1 枚の PNG に合成します。ターミナル Web ブラウザなど、画像で描画するペイン向けです。キャンバスは表示中のセルをホストのセルピクセルサイズで覆い、背景は透明です。テキストセルは PNG に描画しません。代わりに `text` が、`source: "visible"` の `pane.read` と同じ ANSI 除去済みの表示テキストを返します。結果には `pane_id`、`width_px`、`height_px`、`cell_width_px`、`cell_height_px`、`cols`、`rows`、`placements`(合成した配置数)、`png_base64`、`text` が含まれます。接続中のクライアントがセルピクセルサイズを報告していない場合は `cell_size_unavailable` で失敗します。
+
+```bash
+herdr pane snapshot w1:p1 --out pane.png
+```
 
 ## 状態の待機
 

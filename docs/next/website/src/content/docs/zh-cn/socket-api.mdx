@@ -99,7 +99,7 @@ herdr pane read w1:p2 --source recent --lines 50
 | 工作区 | `workspace.create`、`workspace.list`、`workspace.get`、`workspace.focus`、`workspace.rename`、`workspace.move`、`workspace.move_block`、`workspace.report_metadata`、`workspace.close` |
 | Worktree | `worktree.list`、`worktree.create`、`worktree.open`、`worktree.remove` |
 | 标签页 | `tab.create`、`tab.list`、`tab.get`、`tab.focus`、`tab.rename`、`tab.move`、`tab.close` |
-| 窗格 | `pane.split`、`pane.swap`、`pane.move`、`pane.zoom`、`pane.layout`、`pane.process_info`、`pane.neighbor`、`pane.edges`、`pane.focus_direction`、`pane.resize`、`pane.list`、`pane.current`、`pane.get`、`pane.rename`、`pane.send_text`、`pane.send_keys`、`pane.send_input`、`pane.read`、`pane.report_agent`、`pane.report_agent_session`、`pane.report_metadata`、`pane.clear_agent_authority`、`pane.release_agent`、`pane.close`、`pane.wait_for_output` |
+| 窗格 | `pane.split`、`pane.swap`、`pane.move`、`pane.zoom`、`pane.layout`、`pane.process_info`、`pane.neighbor`、`pane.edges`、`pane.focus_direction`、`pane.resize`、`pane.list`、`pane.current`、`pane.get`、`pane.rename`、`pane.send_text`、`pane.send_keys`、`pane.send_input`、`pane.read`、`pane.snapshot`、`pane.report_agent`、`pane.report_agent_session`、`pane.report_metadata`、`pane.clear_agent_authority`、`pane.release_agent`、`pane.close`、`pane.wait_for_output` |
 | 弹窗 | `popup.close` |
 | 布局 | `layout.export`、`layout.apply`、`layout.set_split_ratio` |
 | 智能体 | `agent.list`、`agent.get`、`agent.read`、`agent.explain`、`agent.send_keys`、`agent.prompt`、`agent.wait`、`agent.rename`、`agent.focus`、`agent.start` |
@@ -672,6 +672,12 @@ herdr pane read w1:p1 --source detection
 
 `recent-unwrapped` 对日志很有用,因为它忽略软折行。
 `detection` 返回智能体屏幕检测使用的底部缓冲区快照。
+
+`pane.snapshot`(参数 `{ "pane_id": "w1:p1" }`)把窗格中可见的 Kitty 图形放置合成为一张 PNG,适用于终端网页浏览器等用图像绘制的窗格。画布按主机单元格像素尺寸覆盖可见单元格,背景透明;文本单元格不会绘制到 PNG 中;`text` 字段返回可见文本(去除 ANSI),与 `source: "visible"` 的 `pane.read` 完全一致。结果包含 `pane_id`、`width_px`、`height_px`、`cell_width_px`、`cell_height_px`、`cols`、`rows`、`placements`(合成的放置数)、`png_base64` 和 `text`。没有已连接客户端报告单元格像素尺寸时,返回 `cell_size_unavailable` 错误。
+
+```bash
+herdr pane snapshot w1:p1 --out pane.png
+```
 
 ## 等待状态
 
