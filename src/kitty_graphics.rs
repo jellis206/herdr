@@ -494,6 +494,21 @@ fn append_placement_controls(control: &mut String, clipped: ClippedPlacement) {
 }
 
 fn clipped_placement(placement: &HostPlacement) -> Option<(ClippedPlacement, u32)> {
+    clip_geometry(&PlacementGeometry {
+        area: placement.area,
+        cell_size: placement.cell_size,
+        placement: &placement.placement,
+    })
+}
+
+/// What clipping needs from a placement, without host identity.
+struct PlacementGeometry<'a> {
+    area: Rect,
+    cell_size: HostCellSize,
+    placement: &'a KittyImagePlacement,
+}
+
+fn clip_geometry(placement: &PlacementGeometry<'_>) -> Option<(ClippedPlacement, u32)> {
     if placement.area.width == 0 || placement.area.height == 0 {
         tracing::debug!(
             area_w = placement.area.width,
@@ -530,7 +545,6 @@ fn clipped_placement(placement: &HostPlacement) -> Option<(ClippedPlacement, u32
         viewport_row = viewport_row,
         area_w = placement.area.width,
         area_h = placement.area.height,
-        scrollback_offset = placement.scrollback_offset,
         raw_viewport_row = render.viewport_row,
         cond1 = viewport_col >= placement.area.width as u32,
         cond2 = viewport_row >= placement.area.height as u32,

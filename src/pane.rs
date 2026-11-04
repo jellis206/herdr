@@ -3651,6 +3651,17 @@ impl PaneRuntime {
             .kitty_image_placements_with_data_filter(needs_data)
     }
 
+    pub(crate) fn try_kitty_image_placements_with_data_filter<F>(
+        &self,
+        needs_data: F,
+    ) -> Result<Vec<crate::ghostty::KittyImagePlacement>, String>
+    where
+        F: FnMut(crate::ghostty::KittyImageDescriptor) -> bool,
+    {
+        self.terminal
+            .try_kitty_image_placements_with_data_filter(needs_data)
+    }
+
     pub(crate) fn kitty_image_fingerprints(&self, image_ids: &[u32]) -> Vec<Option<u64>> {
         self.terminal.kitty_image_fingerprints(image_ids)
     }

@@ -21,6 +21,7 @@ use crate::app::actions::{PaneZoomCommand, PaneZoomNoopReason};
 use crate::app::App;
 #[cfg(test)]
 use crate::app::Mode;
+use crate::kitty_graphics::snapshot;
 use crate::layout::{find_in_direction, NavDirection, PaneId};
 
 use super::super::api_helpers::{
@@ -1634,9 +1635,32 @@ impl App {
             None,
         )
         .text;
-        let placements = runtime.kitty_image_placements_with_data_filter(|_| true);
-        let snapshot = crate::kitty_graphics::snapshot::composite(placements, cols, rows, cell);
-        let png = match crate::kitty_graphics::snapshot::encode_png(&snapshot) {
+        let mut placements =
+            match runtime.try_kitty_image_placements_with_data_filter(snapshot::needs_pixels()) {
+                Ok(placements) => placements,
+                Err(err) => {
+                    return encode_error(
+                        id,
+                        "snapshot_failed",
+                        format!("could not read pane graphics: {err}"),
+                    )
+                }
+            };
+        let pixels = match snapshot::image_pixels(&mut placements) {
+            Ok(pixels) => pixels,
+            Err(err) => {
+                return encode_error(
+                    id,
+                    "snapshot_failed",
+                    format!("could not read pane image file: {err}"),
+                )
+            }
+        };
+        let image = match snapshot::composite(&placements, &pixels, cols, rows, cell) {
+            Ok(image) => image,
+            Err(err) => return encode_error(id, err.code(), err.message()),
+        };
+        let png = match snapshot::encode_png(&image) {
             Ok(png) => png,
             Err(err) => return encode_error(id, "snapshot_encode_failed", err.to_string()),
         };
@@ -1644,13 +1668,13 @@ impl App {
             id,
             ResponseResult::PaneSnapshot {
                 pane_id: public_pane_id,
-                width_px: snapshot.width_px,
-                height_px: snapshot.height_px,
+                width_px: image.width_px,
+                height_px: image.height_px,
                 cell_width_px: cell.width_px,
                 cell_height_px: cell.height_px,
                 cols,
                 rows,
-                placements: snapshot.placements,
+                placements: image.placements,
                 png_base64: base64::engine::general_purpose::STANDARD.encode(png),
                 text,
             },
@@ -2974,6 +2998,64 @@ mod tests {
         assert_eq!((cols, rows, width_px, height_px), (20, 5, 80, 40));
         assert_eq!(placements, 0);
         assert!(!png_base64.is_empty());
+    }
+
+    #[tokio::test]
+    async fn api_pane_snapshot_composites_a_termium_tile_grid() {
+        use crate::kitty_graphics::snapshot::tests::tile;
+
+        let (mut app, public_pane_id) = app_with_test_workspace();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let runtime = crate::terminal::TerminalRuntime::test_with_scrollback_bytes(4, 2, 1000, b"");
+        runtime.resize(2, 4, 4, 8);
+        // 2x2 grid of 8x8 tiles, each two cells wide and one row tall.
+        for (id, cell) in [(1, (1, 1)), (2, (1, 3)), (3, (2, 1)), (4, (2, 3))] {
+            runtime.test_process_pty_bytes(&tile(id, cell, (8, 8)));
+        }
+        runtime.test_process_pty_bytes(b"\x1b[1;1Hhi");
+        app.state.insert_test_runtime(pane_id, runtime);
+        app.state.host_cell_size = crate::kitty_graphics::HostCellSize {
+            width_px: 4,
+            height_px: 8,
+        };
+
+        let response = app.handle_pane_snapshot(
+            "req".into(),
+            PaneSnapshotParams {
+                pane_id: public_pane_id,
+                out: None,
+            },
+        );
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::PaneSnapshot {
+            width_px,
+            height_px,
+            placements,
+            png_base64,
+            text,
+            ..
+        } = success.result
+        else {
+            panic!("expected pane snapshot response: {response}");
+        };
+        assert_eq!((width_px, height_px, placements), (16, 16, 4));
+        assert!(text.contains("hi"), "{text}");
+        let png = base64::engine::general_purpose::STANDARD
+            .decode(png_base64)
+            .unwrap();
+        let mut reader = png::Decoder::new(std::io::Cursor::new(png))
+            .read_info()
+            .unwrap();
+        let mut rgba = vec![0; reader.output_buffer_size()];
+        reader.next_frame(&mut rgba).unwrap();
+        let px = |x: usize, y: usize| -> [u8; 4] {
+            let at = (y * 16 + x) * 4;
+            rgba[at..at + 4].try_into().unwrap()
+        };
+        assert_eq!(px(0, 0), [0, 0, 1, 255]);
+        assert_eq!(px(8 + 3, 5), [3, 5, 2, 255]);
+        assert_eq!(px(6, 8 + 2), [6, 2, 3, 255]);
+        assert_eq!(px(15, 15), [7, 7, 4, 255]);
     }
 
     #[tokio::test]

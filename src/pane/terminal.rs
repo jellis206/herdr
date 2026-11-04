@@ -588,6 +588,17 @@ impl PaneTerminal {
             .kitty_image_placements_with_data_filter(needs_data)
     }
 
+    pub(crate) fn try_kitty_image_placements_with_data_filter<F>(
+        &self,
+        needs_data: F,
+    ) -> Result<Vec<crate::ghostty::KittyImagePlacement>, String>
+    where
+        F: FnMut(crate::ghostty::KittyImageDescriptor) -> bool,
+    {
+        self.ghostty
+            .try_kitty_image_placements_with_data_filter(needs_data)
+    }
+
     pub(crate) fn kitty_image_fingerprints(&self, image_ids: &[u32]) -> Vec<Option<u64>> {
         self.ghostty.kitty_image_fingerprints(image_ids)
     }
@@ -2335,15 +2346,26 @@ impl GhosttyPaneTerminal {
     where
         F: FnMut(crate::ghostty::KittyImageDescriptor) -> bool,
     {
-        self.core
-            .lock()
-            .ok()
-            .and_then(|core| {
-                core.terminal
-                    .kitty_image_placements_with_data_filter(needs_data)
-                    .ok()
-            })
+        self.try_kitty_image_placements_with_data_filter(needs_data)
             .unwrap_or_default()
+    }
+
+    /// Like `kitty_image_placements_with_data_filter`, but reports failures
+    /// instead of returning an empty list.
+    pub(crate) fn try_kitty_image_placements_with_data_filter<F>(
+        &self,
+        needs_data: F,
+    ) -> Result<Vec<crate::ghostty::KittyImagePlacement>, String>
+    where
+        F: FnMut(crate::ghostty::KittyImageDescriptor) -> bool,
+    {
+        let core = self
+            .core
+            .lock()
+            .map_err(|_| "terminal lock poisoned".to_string())?;
+        core.terminal
+            .kitty_image_placements_with_data_filter(needs_data)
+            .map_err(|err| err.to_string())
     }
 
     pub(crate) fn kitty_image_fingerprints(&self, image_ids: &[u32]) -> Vec<Option<u64>> {
