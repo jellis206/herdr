@@ -130,6 +130,7 @@ impl ClientShellConfig {
             toast_delay_seconds: config.ui.toast.delay_seconds,
             toast_position: config.ui.toast.herdr.position,
             copy_on_select: config.ui.copy_on_select,
+            scrollbar_track: config.ui.scrollbar_track,
             clipboard_toast_enabled: config.ui.toast.clipboard.enabled,
             clipboard_toast_position: config.ui.toast.clipboard.position,
             theme_name: theme_runtime.manual_name.clone(),

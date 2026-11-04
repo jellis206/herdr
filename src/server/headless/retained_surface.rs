@@ -127,6 +127,7 @@ fn retained_scrollbar_patch(
             track,
             &app.state.palette,
             pane.focused,
+            app.state.scrollbar_track,
         );
     }
     let cells = buffer

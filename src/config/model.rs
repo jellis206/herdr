@@ -979,6 +979,8 @@ pub struct UiConfig {
     pub pane_outer_borders: bool,
     /// Draw interactive scrollbars beside terminal panes. Default: true.
     pub pane_scrollbars: bool,
+    /// Draw the full-height track under scrollbar thumbs. Default: false.
+    pub scrollbar_track: bool,
     /// Keep split panes visually separated instead of sharing divider borders. Default: true.
     pub pane_gaps: bool,
     /// Show agent labels in split pane borders when no manual pane label is set. Default: false.
@@ -1220,6 +1222,7 @@ impl Default for UiConfig {
             pane_borders: PaneBordersConfig::Auto,
             pane_outer_borders: true,
             pane_scrollbars: true,
+            scrollbar_track: false,
             pane_gaps: true,
             show_agent_labels_on_pane_borders: false,
             hide_tab_bar_when_single_tab: false,
@@ -1527,6 +1530,7 @@ status_indicators = "symbols"
         assert_eq!(default_config.ui.pane_borders, PaneBordersConfig::Auto);
         assert!(default_config.ui.pane_outer_borders);
         assert!(default_config.ui.pane_scrollbars);
+        assert!(!default_config.ui.scrollbar_track);
         assert!(default_config.ui.pane_gaps);
         assert!(!default_config.ui.show_agent_labels_on_pane_borders);
         assert!(!default_config.ui.hide_tab_bar_when_single_tab);
@@ -1542,6 +1546,7 @@ status_indicators = "symbols"
 pane_borders = "always"
 pane_outer_borders = false
 pane_scrollbars = false
+scrollbar_track = true
 pane_gaps = true
 show_agent_labels_on_pane_borders = true
 hide_tab_bar_when_single_tab = true
@@ -1559,6 +1564,7 @@ tab_bar_right_separator = " · "
         assert_eq!(config.ui.pane_borders, PaneBordersConfig::Always);
         assert!(!config.ui.pane_outer_borders);
         assert!(!config.ui.pane_scrollbars);
+        assert!(config.ui.scrollbar_track);
         assert!(config.ui.pane_gaps);
         assert!(config.ui.show_agent_labels_on_pane_borders);
         assert!(config.ui.hide_tab_bar_when_single_tab);

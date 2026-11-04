@@ -348,6 +348,7 @@ fn every_dialog_and_menu_occludes_its_panel_not_the_whole_screen() {
                 &state.active_endpoint_id,
                 &state.config.keybinds,
                 &state.config.palette,
+                state.config.scrollbar_track,
             ),
         }
         .unwrap();
