@@ -513,7 +513,13 @@ pub(super) fn render_expanded(
     if show_scrollbar {
         let track = Rect::new(body.right().saturating_sub(1), body.y, 1, body.height);
         hits.workspace_scrollbar = track;
-        super::scroll::render_list_scrollbar(buffer, track, metrics, palette);
+        super::scroll::render_list_scrollbar(
+            buffer,
+            track,
+            metrics,
+            palette,
+            config.scrollbar_track,
+        );
     }
 
     let footer_y = workspace_area.bottom().saturating_sub(1);

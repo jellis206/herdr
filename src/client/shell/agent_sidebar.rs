@@ -234,7 +234,13 @@ pub(super) fn render_agent_list<T>(
     if show_scrollbar {
         let track = Rect::new(body.right().saturating_sub(1), body.y, 1, body.height);
         hits.agent_scrollbar = track;
-        super::scroll::render_list_scrollbar(buffer, track, metrics, &config.palette);
+        super::scroll::render_list_scrollbar(
+            buffer,
+            track,
+            metrics,
+            &config.palette,
+            config.scrollbar_track,
+        );
     }
 }
 

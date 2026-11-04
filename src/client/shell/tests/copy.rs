@@ -1434,7 +1434,8 @@ fn navigator_scrollbar_click_and_drag_scroll_without_opening_a_destination() {
         .all(|(rect, _)| rect.right() == track.x));
     let buffer = frame.to_ratatui_buffer().expect("buffer");
     assert_eq!(buffer[(track.x, track.y)].fg, state.config.palette.overlay1);
-    assert_eq!(
+    // No track by default (ui.scrollbar_track): only the thumb is drawn.
+    assert_ne!(
         buffer[(track.x, track.bottom() - 1)].fg,
         state.config.palette.overlay0
     );

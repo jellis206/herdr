@@ -137,7 +137,7 @@ pub(crate) fn render_scrollbar_buffer(
     buffer: &mut Buffer,
     metrics: crate::pane::ScrollMetrics,
     track: Rect,
-    track_color: Color,
+    track_color: Option<Color>,
     thumb_color: Color,
     thumb_symbol: &str,
 ) {
@@ -149,10 +149,13 @@ pub(crate) fn render_scrollbar_buffer(
         return;
     };
 
-    for y in track.y..track.y + track.height {
-        let cell = &mut buffer[(track.x, y)];
-        cell.set_symbol("▕");
-        cell.set_style(Style::default().fg(track_color));
+    // No track color: only the thumb is drawn.
+    if let Some(track_color) = track_color {
+        for y in track.y..track.y + track.height {
+            let cell = &mut buffer[(track.x, y)];
+            cell.set_symbol("▕");
+            cell.set_style(Style::default().fg(track_color));
+        }
     }
     for y in thumb.top..thumb.top + thumb.len {
         let cell = &mut buffer[(track.x, y)];
@@ -167,6 +170,7 @@ pub(crate) fn render_pane_scrollbar_buffer(
     track: Rect,
     palette: &crate::app::state::Palette,
     focused: bool,
+    draw_track: bool,
 ) {
     let (track_color, thumb_color, thumb_symbol) = if focused {
         (palette.overlay0, palette.overlay1, "▐")
@@ -177,7 +181,7 @@ pub(crate) fn render_pane_scrollbar_buffer(
         buffer,
         metrics,
         track,
-        track_color,
+        draw_track.then_some(track_color),
         thumb_color,
         thumb_symbol,
     );
@@ -201,5 +205,44 @@ pub(super) fn render_pane_scrollbar(
         track,
         &app.palette,
         info.is_focused,
+        app.scrollbar_track,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pane_scrollbar_draws_the_track_only_when_asked() {
+        let palette = crate::app::state::Palette::catppuccin();
+        let track = Rect::new(0, 0, 1, 10);
+        let metrics = crate::pane::ScrollMetrics {
+            offset_from_bottom: 0,
+            max_offset_from_bottom: 30,
+            viewport_rows: 10,
+        };
+        let thumb = scrollbar_thumb(metrics, track).unwrap();
+        for focused in [true, false] {
+            for draw_track in [true, false] {
+                let mut buffer = Buffer::empty(track);
+                render_pane_scrollbar_buffer(
+                    &mut buffer,
+                    metrics,
+                    track,
+                    &palette,
+                    focused,
+                    draw_track,
+                );
+                for y in track.y..track.bottom() {
+                    let on_thumb = y >= thumb.top && y < thumb.top + thumb.len;
+                    assert_eq!(
+                        buffer[(0, y)].symbol() != " ",
+                        on_thumb || draw_track,
+                        "row {y}, focused {focused}, track {draw_track}"
+                    );
+                }
+            }
+        }
+    }
 }

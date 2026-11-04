@@ -305,6 +305,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Set false to reclaim the scrollbar column and keep it out of terminal-native selections.
 # pane_scrollbars = true
 
+# Draw the full-height track line under scrollbar thumbs (panes, overlays, sidebars).
+# The thumb alone already shows the position, so this is off by default.
+# scrollbar_track = false
+
 # Keep split panes visually separated instead of sharing divider borders.
 # pane_gaps = true
 

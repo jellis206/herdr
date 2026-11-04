@@ -41,6 +41,7 @@ pub(crate) fn render_client_overlay(
     active_endpoint_id: &ClientEndpointId,
     k: &LiveKeybindConfig,
     p: &Palette,
+    scrollbar_track: bool,
 ) -> Option<OverlayRender> {
     if !matches!(
         o,
@@ -57,16 +58,27 @@ pub(crate) fn render_client_overlay(
     }
     match o {
         ClientShellOverlay::Onboarding => render_onboarding_overlay(b, k, p),
-        ClientShellOverlay::ProductAnnouncement(v) => render_product_announcement_overlay(b, v, p),
-        ClientShellOverlay::ReleaseNotes(v) => {
-            render_release_notes_overlay(b, v, &s.update_install_command, p)
+        ClientShellOverlay::ProductAnnouncement(v) => {
+            render_product_announcement_overlay(b, v, p, scrollbar_track.then_some(p.overlay0))
         }
+        ClientShellOverlay::ReleaseNotes(v) => render_release_notes_overlay(
+            b,
+            v,
+            &s.update_install_command,
+            p,
+            scrollbar_track.then_some(p.overlay0),
+        ),
         ClientShellOverlay::Rename(v) => render_rename_overlay(b, v, p),
         ClientShellOverlay::ConfirmClose(v) => render_confirm_close_overlay(b, v, p),
         ClientShellOverlay::Help(v) => render_help_overlay(b, v, k, p),
-        ClientShellOverlay::Navigator(v) => {
-            render_navigator_overlay(b, v, endpoints, active_endpoint_id, p)
-        }
+        ClientShellOverlay::Navigator(v) => render_navigator_overlay(
+            b,
+            v,
+            endpoints,
+            active_endpoint_id,
+            p,
+            scrollbar_track.then_some(p.overlay0),
+        ),
         ClientShellOverlay::Settings(v) => {
             settings_overlay::render_settings_overlay(b, v, s.integration_updates_available, p)
         }
@@ -310,6 +322,7 @@ fn render_release_notes_overlay(
     notes: &crate::app::state::ReleaseNotesState,
     install_command: &str,
     p: &Palette,
+    track_color: Option<ratatui::style::Color>,
 ) -> Option<OverlayRender> {
     let outer = popup(
         b.area,
@@ -393,7 +406,7 @@ fn render_release_notes_overlay(
     .scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0));
     ratatui::widgets::Widget::render(paragraph, text_area, b);
     if let Some(track) = track {
-        crate::ui::render_scrollbar_buffer(b, metrics, track, p.overlay0, p.overlay1, "▐");
+        crate::ui::render_scrollbar_buffer(b, metrics, track, track_color, p.overlay1, "▐");
     }
 
     if let Some(footer_area) = stack.footer {
@@ -425,6 +438,7 @@ fn render_product_announcement_overlay(
     b: &mut Buffer,
     announcement: &crate::app::state::ProductAnnouncementState,
     p: &Palette,
+    track_color: Option<ratatui::style::Color>,
 ) -> Option<OverlayRender> {
     let outer = popup(
         b.area,
@@ -509,7 +523,7 @@ fn render_product_announcement_overlay(
     .scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0));
     ratatui::widgets::Widget::render(paragraph, text_area, b);
     if let Some(track) = track {
-        crate::ui::render_scrollbar_buffer(b, metrics, track, p.overlay0, p.overlay1, "▐");
+        crate::ui::render_scrollbar_buffer(b, metrics, track, track_color, p.overlay1, "▐");
     }
 
     if let Some(footer_area) = stack.footer {
@@ -707,6 +721,7 @@ fn render_navigator_overlay(
     endpoints: &[ClientShellEndpoint],
     active_endpoint_id: &ClientEndpointId,
     p: &Palette,
+    track_color: Option<ratatui::style::Color>,
 ) -> Option<OverlayRender> {
     let a = b.area;
     let width = a.width.saturating_sub(4).min(116);
@@ -1001,7 +1016,7 @@ fn render_navigator_overlay(
         }
     }
     if let Some(track) = scrollbar {
-        crate::ui::render_scrollbar_buffer(b, metrics, track, p.overlay0, p.overlay1, "▐");
+        crate::ui::render_scrollbar_buffer(b, metrics, track, track_color, p.overlay1, "▐");
     }
     if let Some(r) = rows.get(selected) {
         put_text(
