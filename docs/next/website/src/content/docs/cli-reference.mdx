@@ -258,7 +258,7 @@ Snapshot Kitty graphics:
 herdr pane snapshot <pane_id> [--out PATH]
 ```
 
-`pane snapshot` composites the pane's visible Kitty graphics into a PNG sized to the visible cells, on a transparent background. Text is not drawn into the PNG; the JSON `text` field carries the visible text, ANSI stripped, as `pane read --source visible` prints it. With `--out`, the CLI writes the PNG to PATH and prints the JSON result with `out` in place of `png_base64`. It fails with `cell_size_unavailable` until an attached client with Kitty graphics reports its cell pixel size.
+`pane snapshot` composites the pane's visible Kitty graphics into a PNG sized to the visible cells, on a transparent background. Text is not drawn into the PNG; the JSON `text` field carries the visible text, ANSI stripped, as `pane read --source visible` prints it. With `--out`, the CLI writes the PNG to PATH and prints the JSON result with `out` in place of `png_base64`. Image and text follow the pane's current scroll position. The cell pixel size comes from the foreground client, so the command fails with `cell_size_unavailable` unless that client supports Kitty graphics and Kitty graphics are enabled; see the socket API reference for the other error codes.
 
 Send input:
 

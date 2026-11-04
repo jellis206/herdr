@@ -861,8 +861,19 @@ size with a transparent background; text cells are not drawn into the PNG.
 Instead, `text` carries the visible text, ANSI stripped, exactly as `pane.read`
 with `source: "visible"` returns it. The result has `pane_id`, `width_px`,
 `height_px`, `cell_width_px`, `cell_height_px`, `cols`, `rows`, `placements`
-(the number composited), `png_base64` and `text`. When no attached client has reported a cell pixel
-size, it fails with `cell_size_unavailable`.
+(the number composited), `png_base64` and `text`. Both the image and the text
+follow the pane's current scroll position.
+
+The cell pixel size comes from the foreground client and is only known when that
+client supports Kitty graphics and Kitty graphics are enabled in Herdr. Error
+codes:
+
+- `cell_size_unavailable`: no foreground client has reported a cell pixel size.
+- `pane_size_unavailable`: the pane's terminal size could not be read.
+- `snapshot_failed`: the pane's graphics or a file-backed image could not be read.
+- `snapshot_too_large`: the canvas would exceed 64M pixels.
+- `snapshot_too_complex`: visible placements cover more than 8 times the canvas.
+- `snapshot_encode_failed`: PNG encoding failed.
 
 ```bash
 herdr pane snapshot w1:p1 --out pane.png

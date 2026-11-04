@@ -673,7 +673,16 @@ herdr pane read w1:p1 --source detection
 `recent-unwrapped` 对日志很有用,因为它忽略软折行。
 `detection` 返回智能体屏幕检测使用的底部缓冲区快照。
 
-`pane.snapshot`(参数 `{ "pane_id": "w1:p1" }`)把窗格中可见的 Kitty 图形放置合成为一张 PNG,适用于终端网页浏览器等用图像绘制的窗格。画布按主机单元格像素尺寸覆盖可见单元格,背景透明;文本单元格不会绘制到 PNG 中;`text` 字段返回可见文本(去除 ANSI),与 `source: "visible"` 的 `pane.read` 完全一致。结果包含 `pane_id`、`width_px`、`height_px`、`cell_width_px`、`cell_height_px`、`cols`、`rows`、`placements`(合成的放置数)、`png_base64` 和 `text`。没有已连接客户端报告单元格像素尺寸时,返回 `cell_size_unavailable` 错误。
+`pane.snapshot`(参数 `{ "pane_id": "w1:p1" }`)把窗格中可见的 Kitty 图形放置合成为一张 PNG,适用于终端网页浏览器等用图像绘制的窗格。画布按主机单元格像素尺寸覆盖可见单元格,背景透明;文本单元格不会绘制到 PNG 中;`text` 字段返回可见文本(去除 ANSI),与 `source: "visible"` 的 `pane.read` 完全一致。结果包含 `pane_id`、`width_px`、`height_px`、`cell_width_px`、`cell_height_px`、`cols`、`rows`、`placements`(合成的放置数)、`png_base64` 和 `text`。图像和文本都跟随窗格当前的滚动位置。
+
+单元格像素尺寸来自前台客户端,只有该客户端支持 Kitty 图形且 Herdr 启用了 Kitty 图形时才可知。错误代码:
+
+- `cell_size_unavailable`:前台客户端未报告单元格像素尺寸。
+- `pane_size_unavailable`:无法读取窗格的终端尺寸。
+- `snapshot_failed`:无法读取窗格图形或文件保存的图像。
+- `snapshot_too_large`:画布将超过 64M 像素。
+- `snapshot_too_complex`:可见放置覆盖的面积超过画布的 8 倍。
+- `snapshot_encode_failed`:PNG 编码失败。
 
 ```bash
 herdr pane snapshot w1:p1 --out pane.png

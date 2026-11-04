@@ -679,7 +679,16 @@ herdr pane read w1:p1 --source detection
 `recent-unwrapped` はソフト折り返しを無視するのでログに便利です。
 `detection` は、エージェントのスクリーン検出が使う下部バッファのスナップショットを返します。
 
-`pane.snapshot`(パラメータ `{ "pane_id": "w1:p1" }`)は、ペインに表示中の Kitty グラフィックス配置を 1 枚の PNG に合成します。ターミナル Web ブラウザなど、画像で描画するペイン向けです。キャンバスは表示中のセルをホストのセルピクセルサイズで覆い、背景は透明です。テキストセルは PNG に描画しません。代わりに `text` が、`source: "visible"` の `pane.read` と同じ ANSI 除去済みの表示テキストを返します。結果には `pane_id`、`width_px`、`height_px`、`cell_width_px`、`cell_height_px`、`cols`、`rows`、`placements`(合成した配置数)、`png_base64`、`text` が含まれます。接続中のクライアントがセルピクセルサイズを報告していない場合は `cell_size_unavailable` で失敗します。
+`pane.snapshot`(パラメータ `{ "pane_id": "w1:p1" }`)は、ペインに表示中の Kitty グラフィックス配置を 1 枚の PNG に合成します。ターミナル Web ブラウザなど、画像で描画するペイン向けです。キャンバスは表示中のセルをホストのセルピクセルサイズで覆い、背景は透明です。テキストセルは PNG に描画しません。代わりに `text` が、`source: "visible"` の `pane.read` と同じ ANSI 除去済みの表示テキストを返します。結果には `pane_id`、`width_px`、`height_px`、`cell_width_px`、`cell_height_px`、`cols`、`rows`、`placements`(合成した配置数)、`png_base64`、`text` が含まれます。画像とテキストはどちらもペインの現在のスクロール位置に従います。
+
+セルピクセルサイズはフォアグラウンドのクライアントから取得され、そのクライアントが Kitty グラフィックスに対応し、Herdr で Kitty グラフィックスが有効な場合にのみ判明します。エラーコード:
+
+- `cell_size_unavailable`: フォアグラウンドのクライアントがセルピクセルサイズを報告していません。
+- `pane_size_unavailable`: ペインのターミナルサイズを読み取れませんでした。
+- `snapshot_failed`: ペインのグラフィックスまたはファイルに保持された画像を読み取れませんでした。
+- `snapshot_too_large`: キャンバスが 64M ピクセルを超えます。
+- `snapshot_too_complex`: 表示中の配置がキャンバスの 8 倍を超える面積を覆っています。
+- `snapshot_encode_failed`: PNG のエンコードに失敗しました。
 
 ```bash
 herdr pane snapshot w1:p1 --out pane.png

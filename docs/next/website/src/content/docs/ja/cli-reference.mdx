@@ -243,7 +243,7 @@ Kitty グラフィックスのスナップショット:
 herdr pane snapshot <pane_id> [--out PATH]
 ```
 
-`pane snapshot` は、ペインに表示中の Kitty グラフィックスを、表示中のセルの大きさの透明背景 PNG に合成します。テキストは PNG に描画せず、JSON の `text` フィールドが `pane read --source visible` と同じ ANSI 除去済みの表示テキストを返します。`--out` を指定すると CLI が PNG を PATH に書き込み、`png_base64` の代わりに `out` を含む JSON 結果を出力します。Kitty グラフィックス対応のクライアントが接続してセルピクセルサイズを報告するまでは `cell_size_unavailable` で失敗します。
+`pane snapshot` は、ペインに表示中の Kitty グラフィックスを、表示中のセルの大きさの透明背景 PNG に合成します。テキストは PNG に描画せず、JSON の `text` フィールドが `pane read --source visible` と同じ ANSI 除去済みの表示テキストを返します。`--out` を指定すると CLI が PNG を PATH に書き込み、`png_base64` の代わりに `out` を含む JSON 結果を出力します。画像とテキストはペインの現在のスクロール位置に従います。セルピクセルサイズはフォアグラウンドのクライアントから取得されるため、そのクライアントが Kitty グラフィックスに対応し、Kitty グラフィックスが有効でない限り `cell_size_unavailable` で失敗します。その他のエラーコードはソケット API リファレンスを参照してください。
 
 入力を送る:
 
